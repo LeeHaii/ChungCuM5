@@ -143,7 +143,9 @@ public class HouseCanvasController : MonoBehaviour
 
         if (uiPanel != null)
         {
-            uiPanel.SetActive(true);
+            var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
+            if (mwm != null) mwm.OpenWindow();
+            else uiPanel.SetActive(true);
         }
     }
 
@@ -165,7 +167,9 @@ public class HouseCanvasController : MonoBehaviour
 
         if (uiPanel != null)
         {
-            uiPanel.SetActive(true);
+            var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
+            if (mwm != null) mwm.OpenWindow();
+            else uiPanel.SetActive(true);
         }
     }
 
@@ -209,7 +213,9 @@ public class HouseCanvasController : MonoBehaviour
         currentSelectedUnit = null;
         if (uiPanel != null)
         {
-            uiPanel.SetActive(false);
+            var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
+            if (mwm != null) mwm.CloseWindow();
+            else uiPanel.SetActive(false);
         }
     }
 }

@@ -20,7 +20,7 @@ MonoBehaviour:
   orientation: 0
   isLeftHanded: 0
   isZUp: 0
-  stitchPatches: 0
+  stitchPatches: 1
   treeProcess: 0
   treeLevel: 1
   mergeBy: 0
@@ -33,7 +33,7 @@ MonoBehaviour:
   lodsMode: 1
   qualities:
     _lods:
-    - quality: 0
+    - quality: 4
       threshold: 0.7
     - quality: 2
       threshold: 0.35
@@ -50,7 +50,7 @@ MonoBehaviour:
   lightmapResolution: 1024
   uvPadding: 4
   orient: 0
-  splitTo16BytesIndex: 0
+  splitTo16BytesIndex: 1
   shader: {fileID: 0}
   useMaterialsInResources: 0
   avoidNegativeScale: 1

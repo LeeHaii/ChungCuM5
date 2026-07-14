@@ -22,6 +22,8 @@ public class HouseAPIManager : MonoBehaviour
         }
 
         StartCoroutine(FetchHousesData());
+
+        this.gameObject.SetActive(false);
     }
 
     private IEnumerator FetchHousesData()

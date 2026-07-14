@@ -9,10 +9,10 @@ using UnityEditor;
 public class ColliderManager : MonoBehaviour
 {
     // Allows you to run this from the component's context menu in the Inspector
-    [ContextMenu("Add Convex Mesh Colliders")]
-    public void AddConvexMeshColliders()
+    [ContextMenu("Add Mesh Colliders")]
+    public void AddMeshColliders()
     {
-        MeshRenderer[] renderers = FindObjectsOfType<MeshRenderer>(true);
+        MeshRenderer[] renderers = FindObjectsOfType<MeshRenderer>(false);
         int addedCount = 0;
         int modifiedCount = 0;
 
@@ -20,40 +20,39 @@ public class ColliderManager : MonoBehaviour
         {
             GameObject go = renderer.gameObject;
             
+            if (!go.activeInHierarchy)
+                continue;
+
             MeshCollider collider = go.GetComponent<MeshCollider>();
             if (collider == null)
             {
                 collider = go.AddComponent<MeshCollider>();
-                collider.convex = true;
-                collider.convex = true;
+                collider.convex = false;
                 addedCount++;
             }
-            else if (!collider.convex)
+            else if (collider.convex)
             {
-                // We just set it to convex but didn't create it, so we DON'T add the marker here.
-                collider.convex = true;
+                collider.convex = false;
                 modifiedCount++;
             }
         }
 
-        Debug.Log($"Added {addedCount} new MeshColliders and set {modifiedCount} existing ones to convex.");
+        Debug.Log($"Added {addedCount} new MeshColliders and set {modifiedCount} existing ones to non-convex.");
     }
-
-    // RemoveGeneratedColliders has been removed because it relied on the marker.
 
     void Start()
     {
         // Uncomment the line below if you want this to happen automatically when the game starts.
         // NOTE: Doing this at runtime can be performance intensive for large scenes!
-        // AddConvexMeshColliders();
+        // AddMeshColliders();
     }
 
 #if UNITY_EDITOR
     // Adds a top menu item in the Unity Editor for convenience
-    [MenuItem("Tools/Colliders/Add Convex Mesh Colliders to All Renderers")]
+    [MenuItem("Tools/Colliders/Add Mesh Colliders to All Active Renderers")]
     public static void AddCollidersMenu()
     {
-        MeshRenderer[] renderers = FindObjectsOfType<MeshRenderer>(true);
+        MeshRenderer[] renderers = FindObjectsOfType<MeshRenderer>(false);
         int addedCount = 0;
         int modifiedCount = 0;
 
@@ -61,26 +60,26 @@ public class ColliderManager : MonoBehaviour
         {
             GameObject go = renderer.gameObject;
             
+            if (!go.activeInHierarchy)
+                continue;
+                
             MeshCollider collider = go.GetComponent<MeshCollider>();
             if (collider == null)
             {
                 Undo.AddComponent<MeshCollider>(go);
                 collider = go.GetComponent<MeshCollider>();
-                //collider.convex = true;
-                //collider.convex = true;
+                collider.convex = false;
                 addedCount++;
             }
-            else if (!collider.convex)
+            else if (collider.convex)
             {
-                Undo.RecordObject(collider, "Set Convex");
-                //collider.convex = true;
+                Undo.RecordObject(collider, "Set Non-Convex");
+                collider.convex = false;
                 modifiedCount++;
             }
         }
 
-        Debug.Log($"[Editor] Added {addedCount} new MeshColliders and set {modifiedCount} existing ones to convex.");
+        Debug.Log($"[Editor] Added {addedCount} new MeshColliders and set {modifiedCount} existing ones to non-convex.");
     }
-
-    // RemoveCollidersMenu has been removed because it relied on the marker.
 #endif
 }

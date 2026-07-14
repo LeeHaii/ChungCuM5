@@ -113,6 +113,8 @@ public class ShowMetadata : MonoBehaviour
         if (selectedObj != null)
         {
             ShowingMetaData(selectedObj);
+            var mwm = GetComponent<Michsky.MUIP.ModalWindowManager>();
+            if (mwm != null) mwm.OpenWindow();
         }
     }
 
@@ -202,5 +204,8 @@ public class ShowMetadata : MonoBehaviour
         xcor.text = "X: --";
         ycor.text = "Y: --";
         zcor.text = "Z: --";
+        
+        var mwm = GetComponent<Michsky.MUIP.ModalWindowManager>();
+        if (mwm != null) mwm.CloseWindow();
     }
 }
