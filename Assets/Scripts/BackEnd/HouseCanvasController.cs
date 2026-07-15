@@ -27,12 +27,18 @@ public class HouseCanvasController : MonoBehaviour
     private HouseData currentHouseData;
     private GameObject currentSelectedUnit;
 
+    [Header("Data & Hierarchy")]
+    public Transform floorsParent;
+    private Database.IQuanLyService _quanLyService;
+
     void Start()
     {
         mainCamera = Camera.main;
         if (uiPanel != null)
         {
-            uiPanel.SetActive(false);
+            var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
+            if (mwm != null) mwm.CloseWindow();
+            else uiPanel.SetActive(false);
             
             // Auto-bind newly created UI elements via code
             houseImage = uiPanel.GetComponentInChildren<RawImage>();
@@ -43,6 +49,68 @@ public class HouseCanvasController : MonoBehaviour
                 goToApartmentButton.onClick.AddListener(OnGoToApartmentClicked);
             }
         }
+
+        string dbPath = System.IO.Path.Combine(Application.streamingAssetsPath, "Database", "ChungCuM5.db");
+        _quanLyService = new Database.SqliteQuanLyService(dbPath);
+
+        if (floorsParent == null)
+        {
+            GameObject floorsObj = GameObject.Find("Floors");
+            if (floorsObj != null) floorsParent = floorsObj.transform;
+        }
+
+        LoadSQLiteData();
+    }
+
+    private void LoadSQLiteData()
+    {
+        _quanLyService.GetDanhSachCanHo(
+            onSuccess: (listCanHo) => {
+                if (floorsParent == null) return;
+                
+                var dict = new System.Collections.Generic.Dictionary<string, Database.CanHo>();
+                foreach (var c in listCanHo) dict[c.MaCanHo] = c;
+
+                foreach (Transform floorTransform in floorsParent)
+                {
+                    foreach (Transform unitTransform in floorTransform)
+                    {
+                        if (unitTransform.CompareTag("Unit"))
+                        {
+                            string unitName = unitTransform.name; 
+                            if (dict.ContainsKey(unitName))
+                            {
+                                var canHo = dict[unitName];
+                                HouseData hd = new HouseData();
+                                hd.id = int.TryParse(canHo.MaCanHo, out int id) ? id : 0;
+                                hd.title = $"Căn hộ {canHo.MaCanHo}";
+                                hd.price = 0; 
+                                hd.description = $"Chủ sở hữu: {canHo.ChuSoHuu}\nSổ GCN: {canHo.SoGCN}";
+                                hd.area_m2 = canHo.DienTich;
+                                hd.status = string.IsNullOrEmpty(canHo.ChuSoHuu) ? "Chưa bán" : "Đã sở hữu";
+                                hd.residential_number = 0; 
+                                hd.addressable_str = "Apartment" + canHo.MaCanHo;
+
+                                HouseComponent comp = unitTransform.gameObject.GetComponent<HouseComponent>();
+                                if (comp == null) comp = unitTransform.gameObject.AddComponent<HouseComponent>();
+                                comp.SetData(hd);
+
+                                // Fetch residents to update residential number
+                                _quanLyService.GetCuDanTheoCanHo(canHo.MaCanHo, 
+                                    (residents) => {
+                                        hd.residential_number = residents.Count;
+                                    }, 
+                                    (err) => {}
+                                );
+                            }
+                        }
+                    }
+                }
+            },
+            onError: (err) => {
+                Debug.LogError("SQLite Fetch Error: " + err);
+            }
+        );
     }
 
     void Update()
@@ -143,9 +211,9 @@ public class HouseCanvasController : MonoBehaviour
 
         if (uiPanel != null)
         {
+            uiPanel.SetActive(true); // Must be active for Animator to work!
             var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
             if (mwm != null) mwm.OpenWindow();
-            else uiPanel.SetActive(true);
         }
     }
 
@@ -167,9 +235,9 @@ public class HouseCanvasController : MonoBehaviour
 
         if (uiPanel != null)
         {
+            uiPanel.SetActive(true); // Must be active for Animator to work!
             var mwm = uiPanel.GetComponent<Michsky.MUIP.ModalWindowManager>();
             if (mwm != null) mwm.OpenWindow();
-            else uiPanel.SetActive(true);
         }
     }
 
