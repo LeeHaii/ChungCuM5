@@ -11,6 +11,7 @@ namespace Database
         public string ChuSoHuu { get; set; }
         public string ThoiHanSoHuu { get; set; }
         public string SoGCN { get; set; }
+        public string TenCanHo { get; set; }
     }
 
     [Serializable]
