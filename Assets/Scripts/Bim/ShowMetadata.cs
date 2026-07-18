@@ -89,22 +89,39 @@ public class ShowMetadata : MonoBehaviour
             if (Physics.Raycast(ray, out RaycastHit hit))
             {
                 GameObject clickedObject = hit.collider.gameObject;
+                GameObject targetObj = GetTargetWithMetadata(clickedObject);
 
-                if (clickedObject != lastSelectedObject)
+                if (targetObj != null)
                 {
-                    lastSelectedObject = clickedObject;
-                    OnObjectSelected(clickedObject);
-                }
-            }
-            else
-            {
-                if (lastSelectedObject != null)
-                {
-                    lastSelectedObject = null;
-                    ClearUI();
+                    if (targetObj != lastSelectedObject)
+                    {
+                        lastSelectedObject = targetObj;
+                        OnObjectSelected(targetObj);
+                    }
                 }
             }
         }
+    }
+
+    private GameObject GetTargetWithMetadata(GameObject obj)
+    {
+        if (obj.TryGetComponent(out HouseComponent houseComp) && houseComp.Data != null) return obj;
+        if (obj.TryGetComponent(out Pixyz.ImportSDK.Metadata pixyzMetadata)) return obj;
+
+        if (obj.transform.parent != null)
+        {
+            GameObject parentObj = obj.transform.parent.gameObject;
+            if (parentObj.TryGetComponent(out HouseComponent pHouseComp) && pHouseComp.Data != null) return parentObj;
+            if (parentObj.TryGetComponent(out Pixyz.ImportSDK.Metadata pPixyz)) return parentObj;
+        }
+
+        HouseComponent cHouseComp = obj.GetComponentInChildren<HouseComponent>();
+        if (cHouseComp != null && cHouseComp.Data != null) return cHouseComp.gameObject;
+
+        Pixyz.ImportSDK.Metadata cPixyz = obj.GetComponentInChildren<Pixyz.ImportSDK.Metadata>();
+        if (cPixyz != null) return cPixyz.gameObject;
+
+        return null;
     }
 
     private void OnObjectSelected(GameObject selectedObj)
@@ -123,13 +140,6 @@ public class ShowMetadata : MonoBehaviour
         GameObject targetObj = obj;
         bool hasHouseComp = targetObj.TryGetComponent(out HouseComponent houseComp) && houseComp.Data != null;
         bool hasPixyz = targetObj.TryGetComponent(out Pixyz.ImportSDK.Metadata pixyzMetadata);
-
-        if (!hasHouseComp && !hasPixyz && targetObj.transform.parent != null)
-        {
-            targetObj = targetObj.transform.parent.gameObject;
-            hasHouseComp = targetObj.TryGetComponent(out houseComp) && houseComp.Data != null;
-            hasPixyz = targetObj.TryGetComponent(out pixyzMetadata);
-        }
 
         corHeader.text = targetObj.name;
         xcor.text = "X: " + Mathf.Round(targetObj.transform.position.x);
