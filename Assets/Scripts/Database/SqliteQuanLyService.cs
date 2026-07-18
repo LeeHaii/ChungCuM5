@@ -1,27 +1,58 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using UnityEngine;
 
 #if USE_SQLITE
 using System.Data;
-using System.Reflection;
 #endif
 
 namespace Database
 {
     public class SqliteQuanLyService : IQuanLyService
     {
-        private string connectionString;
+        private readonly string dbPath;
+        private readonly string connectionString;
 
         public SqliteQuanLyService(string dbPath)
         {
-            connectionString = "URI=file:" + dbPath;
-            InitDB();
+            if (string.IsNullOrWhiteSpace(dbPath))
+            {
+                throw new ArgumentException("A database path is required.", nameof(dbPath));
+            }
+
+            this.dbPath = Path.GetFullPath(dbPath);
+            connectionString = "URI=file:" + this.dbPath;
         }
 
-        private void InitDB()
+#if USE_SQLITE
+        private IDbConnection CreateConnection()
         {
-            Debug.Log("[SqliteQuanLyService] InitDB placeholder");
+            if (!File.Exists(dbPath))
+            {
+                throw new FileNotFoundException("SQLite database file was not found.", dbPath);
+            }
+
+            Type connectionType = Type.GetType("Mono.Data.Sqlite.SqliteConnection, Mono.Data.Sqlite");
+            if (connectionType == null)
+            {
+                throw new InvalidOperationException("Mono.Data.Sqlite.SqliteConnection is unavailable.");
+            }
+
+            return (IDbConnection)Activator.CreateInstance(connectionType, connectionString);
+        }
+#endif
+
+        private static string GetRootErrorMessage(Exception exception)
+        {
+            Exception current = exception;
+            while (current.InnerException != null)
+            {
+                current = current.InnerException;
+            }
+
+            return current.Message;
         }
 
         public void GetDanhSachCanHo(Action<List<CanHo>> onSuccess, Action<string> onError)
@@ -31,19 +62,14 @@ namespace Database
             try
             {
 #if USE_SQLITE
-                // Dynamically load the SQLite connection to avoid compiler errors with missing Mono.Data.Sqlite assemblies
-                Type connectionType = Type.GetType("Mono.Data.Sqlite.SqliteConnection, Mono.Data.Sqlite");
-                if (connectionType == null)
-                {
-                    throw new Exception("SqliteConnection type not found. SQLite might not be supported in this environment.");
-                }
-
-                using (IDbConnection connection = (IDbConnection)Activator.CreateInstance(connectionType, connectionString))
+                using (IDbConnection connection = CreateConnection())
                 {
                     connection.Open();
                     using (IDbCommand command = connection.CreateCommand())
                     {
-                        command.CommandText = "SELECT * FROM CanHo";
+                        command.CommandText =
+                            "SELECT MaCanHo, DiaChi_ToaNha, DienTich, ChuSoHuu, " +
+                            "ThoiHanSoHuu, SoGCN, TenCanHo FROM CAN_HO ORDER BY TenCanHo";
                         using (IDataReader reader = command.ExecuteReader())
                         {
                             while (reader.Read())
@@ -60,7 +86,10 @@ namespace Database
                                     else if (colName == "DiaChi_ToaNha") canHo.DiaChi_ToaNha = val?.ToString();
                                     else if (colName == "DienTich")
                                     {
-                                        if (val != null && float.TryParse(val.ToString(), out float f)) canHo.DienTich = f;
+                                        if (val != null)
+                                        {
+                                            canHo.DienTich = Convert.ToSingle(val, CultureInfo.InvariantCulture);
+                                        }
                                     }
                                     else if (colName == "ChuSoHuu") canHo.ChuSoHuu = val?.ToString();
                                     else if (colName == "ThoiHanSoHuu") canHo.ThoiHanSoHuu = val?.ToString();
@@ -83,8 +112,9 @@ namespace Database
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SqliteQuanLyService] Lỗi lấy danh sách căn hộ: {ex.Message}");
-                onError?.Invoke(ex.Message);
+                string errorMessage = GetRootErrorMessage(ex);
+                Debug.LogError($"[SqliteQuanLyService] Lỗi lấy danh sách căn hộ: {errorMessage}\n{ex}");
+                onError?.Invoke(errorMessage);
             }
         }
 
@@ -95,18 +125,17 @@ namespace Database
             try
             {
 #if USE_SQLITE
-                Type connectionType = Type.GetType("Mono.Data.Sqlite.SqliteConnection, Mono.Data.Sqlite");
-                if (connectionType == null)
-                {
-                    throw new Exception("SqliteConnection type not found.");
-                }
-
-                using (IDbConnection connection = (IDbConnection)Activator.CreateInstance(connectionType, connectionString))
+                using (IDbConnection connection = CreateConnection())
                 {
                     connection.Open();
                     using (IDbCommand command = connection.CreateCommand())
                     {
-                        command.CommandText = "SELECT * FROM CuDan cd JOIN CuTru ct ON cd.MaCuDan = ct.MaCuDan WHERE ct.MaCanHo = @maCanHo";
+                        command.CommandText =
+                            "SELECT cd.MaCuDan, cd.HoTen, cd.SoCCCD, cd.NgaySinh, " +
+                            "cd.SDT, cd.Email, cd.GioiTinh " +
+                            "FROM CU_DAN AS cd " +
+                            "INNER JOIN CU_TRU AS ct ON cd.MaCuDan = ct.MaCuDan " +
+                            "WHERE ct.MaCanHo = @maCanHo";
                         
                         // We must create parameters via the command object since we don't have the SqliteParameter type statically
                         IDbDataParameter param = command.CreateParameter();
@@ -146,8 +175,9 @@ namespace Database
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SqliteQuanLyService] Lỗi lấy cư dân của căn hộ {maCanHo}: {ex.Message}");
-                onError?.Invoke(ex.Message);
+                string errorMessage = GetRootErrorMessage(ex);
+                Debug.LogError($"[SqliteQuanLyService] Lỗi lấy cư dân của căn hộ {maCanHo}: {errorMessage}\n{ex}");
+                onError?.Invoke(errorMessage);
             }
         }
     }
