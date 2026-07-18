@@ -15,6 +15,7 @@ public class LayoutController : MonoBehaviour
     [Header("Buttons")]
     [SerializeField] private Button buttonBim;
     [SerializeField] private Button buttonUnitSearch;
+    [SerializeField] private Button buttonCollapse;
 
     private void Start()
     {
@@ -23,12 +24,13 @@ public class LayoutController : MonoBehaviour
         // Start in the default thin state
         buttonBim.onClick.AddListener(ShowBimState);
         buttonUnitSearch.onClick.AddListener(ShowUnitSearchState);
+        buttonCollapse.onClick.AddListener(ShowDefaultState);
         ShowDefaultState();
     }
 
     // --- BUTTON TRIGGER FUNCTIONS ---
 
-    public void ShowDefaultState()
+    private void ShowDefaultState()
     {
         UpdateLayout(
             leftWidth: 35f, 
@@ -37,9 +39,10 @@ public class LayoutController : MonoBehaviour
             showBim: false, 
             showCuDan: false
         );
+        buttonCollapse.gameObject.SetActive(false);
     }
 
-    public void ShowBimState()
+    private void ShowBimState()
     {
         UpdateLayout(
             leftWidth: 190f, 
@@ -48,9 +51,10 @@ public class LayoutController : MonoBehaviour
             showBim: true, 
             showCuDan: false
         );
+        buttonCollapse.gameObject.SetActive(true);
     }
 
-    public void ShowUnitSearchState()
+    private void ShowUnitSearchState()
     {
         UpdateLayout(
             leftWidth: 400f, 
@@ -59,6 +63,7 @@ public class LayoutController : MonoBehaviour
             showBim: false, 
             showCuDan: true
         );
+        buttonCollapse.gameObject.SetActive(true);
     }
 
     // --- HELPER LAYOUT FUNCTION ---

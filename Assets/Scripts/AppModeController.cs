@@ -1,14 +1,15 @@
 using UnityEngine;
 using Michsky.MUIP;
+using UnityEngine.UI;
 
 public class AppModeController : MonoBehaviour
 {
-    public ButtonManager buttonBim;
-    public ButtonManager buttonUnitSearch;
-
-    public GameObject ApartmentInfoPanel;
-    public GameObject BimDataPanel;
-    public BimDataProperties bimDataProperties;
+    [SerializeField] private Button buttonUnitSearch;
+    [SerializeField] private Button buttonBim;
+    
+    [SerializeField] private GameObject ApartmentInfoPanel;
+    [SerializeField] private GameObject BimDataPanel;
+    [SerializeField] private BimDataProperties bimDataProperties;
 
     [SerializeField] private GameObject floor;
 
@@ -18,12 +19,12 @@ public class AppModeController : MonoBehaviour
         if (buttonBim == null)
         {
             var go = GameObject.Find("ButtonBIM");
-            if (go) buttonBim = go.GetComponent<ButtonManager>();
+            if (go) buttonBim = go.GetComponent<Button>();
         }
         if (buttonUnitSearch == null)
         {
             var go = GameObject.Find("ButtonUnitSearch");
-            if (go) buttonUnitSearch = go.GetComponent<ButtonManager>();
+            if (go) buttonUnitSearch = go.GetComponent<Button>();
         }
         if (bimDataProperties == null) bimDataProperties = FindObjectOfType<BimDataProperties>(true);
         if (ApartmentInfoPanel == null) ApartmentInfoPanel = GameObject.Find("ApartmentInfoPanel");
@@ -55,23 +56,35 @@ public class AppModeController : MonoBehaviour
         //SetUnitSearchMode();
     }
 
-    public void SetBimMode()
+    private void SetBimMode()
     {
         if (BimDataPanel) {
             BimDataPanel.SetActive(true); // Ensure the panel is active so Update runs
         }
-        if (floor) floor.SetActive(false);
         if (bimDataProperties) bimDataProperties.EnableBIMData();
+        ExitUnitSearchMode();
         Debug.Log("[Mode] Switched to BIM Mode");
     }
 
-    public void SetUnitSearchMode()
+    private void SetUnitSearchMode()
     {
         if (ApartmentInfoPanel) {
             ApartmentInfoPanel.SetActive(true); // Ensure it's active
             floor.SetActive(true);
         }
-        if (bimDataProperties) bimDataProperties.DisableBIMData();
+        ExitBimMode();
         Debug.Log("[Mode] Switched to Unit Search Mode");
+    }
+
+    private void ExitBimMode()
+    {
+        if (bimDataProperties) bimDataProperties.DisableBIMData();
+        if(BimDataPanel) BimDataPanel.SetActive(false);
+    }
+
+    private void ExitUnitSearchMode()
+    {
+        if (ApartmentInfoPanel) ApartmentInfoPanel.SetActive(false);
+        if(floor) floor.SetActive(false);
     }
 }
