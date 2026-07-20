@@ -9,6 +9,9 @@ public class UnitSearchTableController : MonoBehaviour
 
     private Database.IQuanLyService _quanLyService;
     private bool isDataLoaded = false;
+    
+    [Header("Family Data Link")]
+    [SerializeField] private FamilyDataViewController familyDataController;
 
     private void Awake()
     {
@@ -67,6 +70,15 @@ public class UnitSearchTableController : MonoBehaviour
             SetText(newEntry, "ChuSoHuu", canHo.ChuSoHuu);
             SetText(newEntry, "SoGCN", canHo.SoGCN);
             SetText(newEntry, "ThoiHanSoHuu", canHo.ThoiHanSoHuu);
+
+            // Hook up the ButtonViewData if it exists
+            UnityEngine.UI.Button viewDataBtn = newEntry.transform.Find("ButtonViewData")?.GetComponent<UnityEngine.UI.Button>();
+            if (viewDataBtn != null && familyDataController != null)
+            {
+                string maCanHo = canHo.MaCanHo; // capture in local variable for closure
+                viewDataBtn.onClick.RemoveAllListeners();
+                viewDataBtn.onClick.AddListener(() => familyDataController.OnViewFamilyData(maCanHo));
+            }
         }
     }
 

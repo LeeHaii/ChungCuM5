@@ -132,7 +132,8 @@ namespace Database
                     {
                         command.CommandText =
                             "SELECT cd.MaCuDan, cd.HoTen, cd.SoCCCD, cd.NgaySinh, " +
-                            "cd.SDT, cd.Email, cd.GioiTinh " +
+                            "cd.SDT, cd.Email, cd.GioiTinh, " +
+                            "ct.QuanHeVoiChuHo, ct.LoaiCuTru, ct.TrangThai " +
                             "FROM CU_DAN AS cd " +
                             "INNER JOIN CU_TRU AS ct ON cd.MaCuDan = ct.MaCuDan " +
                             "WHERE ct.MaCanHo = @maCanHo";
@@ -161,6 +162,9 @@ namespace Database
                                     else if (colName == "SDT") cd.SDT = val?.ToString();
                                     else if (colName == "Email") cd.Email = val?.ToString();
                                     else if (colName == "GioiTinh") cd.GioiTinh = val?.ToString();
+                                    else if (colName == "QuanHeVoiChuHo") cd.QuanHeVoiChuHo = val?.ToString();
+                                    else if (colName == "LoaiCuTru") cd.LoaiCuTru = val?.ToString();
+                                    else if (colName == "TrangThai") cd.TrangThai = val?.ToString();
                                 }
                                 result.Add(cd);
                             }

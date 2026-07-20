@@ -24,6 +24,11 @@ namespace Database
         public string SDT { get; set; }
         public string Email { get; set; }
         public string GioiTinh { get; set; }
+        
+        // Joined from CuTru table
+        public string QuanHeVoiChuHo { get; set; }
+        public string LoaiCuTru { get; set; }
+        public string TrangThai { get; set; }
     }
 
     [Serializable]

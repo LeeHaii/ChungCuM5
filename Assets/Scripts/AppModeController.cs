@@ -6,6 +6,7 @@ public class AppModeController : MonoBehaviour
 {
     [SerializeField] private Button buttonUnitSearch;
     [SerializeField] private Button buttonBim;
+    [SerializeField] private Button buttonCollapse;
     
     [SerializeField] private GameObject ApartmentInfoPanel;
     [SerializeField] private GameObject BimDataPanel;
@@ -34,6 +35,7 @@ public class AppModeController : MonoBehaviour
         BimDataPanel.SetActive(false);
         floor.SetActive(false);
 
+        #region AttachButtons
         if (buttonBim != null)
         {
             buttonBim.onClick.AddListener(SetBimMode);
@@ -51,6 +53,13 @@ public class AppModeController : MonoBehaviour
         {
             Debug.LogWarning("[AppModeController] ButtonUnitSearch not found.");
         }
+        
+        if (buttonCollapse != null) buttonCollapse.onClick.AddListener(OnCollapsing);
+        else
+        {
+            Debug.LogWarning("[AppModeController] ButtonCollapse not found.");
+        }
+        #endregion
 
         // Initialize to Unit Search mode by default
         //SetUnitSearchMode();
@@ -86,5 +95,11 @@ public class AppModeController : MonoBehaviour
     {
         if (ApartmentInfoPanel) ApartmentInfoPanel.SetActive(false);
         if(floor) floor.SetActive(false);
+    }
+
+    private void OnCollapsing()
+    {
+        ExitBimMode();
+        ExitUnitSearchMode();
     }
 }
