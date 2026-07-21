@@ -5,9 +5,16 @@ using UnityEngine.UI;
 using UnityEngine.InputSystem.EnhancedTouch; 
 // We use an alias here so Unity doesn't confuse it with the old legacy touch system
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
+using TMPro;
 
 public class OrbitCamera : MonoBehaviour
 {
+    [Header("Touch Mode UI")]
+    public GameObject touchControlsPanel;
+    public Button touchModeButton;
+    public Sprite imgOrbit;
+    public Sprite imgDrag;
+
     [Header("Target Pivot")]
     public Vector3 pivotPoint = Vector3.zero;
 
@@ -81,7 +88,37 @@ public class OrbitCamera : MonoBehaviour
             }
         }
 
+        if (touchControlsPanel != null)
+        {
+            if (Touchscreen.current != null)
+            {
+                touchControlsPanel.SetActive(true);
+                if (touchModeButton != null)
+                {
+                    touchModeButton.onClick.AddListener(ToggleTouchMode);
+                    UpdateTouchModeImage();
+                }
+            }
+            else
+            {
+                touchControlsPanel.SetActive(false);
+            }
+        }
+
         UpdateCameraPosition();
+    }
+
+    public void ToggleTouchMode()
+    {
+        currentTouchMode = currentTouchMode == TouchMode.Rotate ? TouchMode.Drag : TouchMode.Rotate;
+        UpdateTouchModeImage();
+    }
+
+    private void UpdateTouchModeImage()
+    {
+        if (imgDrag == null || imgOrbit == null) return;
+        if (currentTouchMode == TouchMode.Drag) touchModeButton.image.sprite = imgDrag;
+        else touchModeButton.image.sprite = imgOrbit;
     }
 
     public void ResetView()
@@ -98,67 +135,86 @@ public class OrbitCamera : MonoBehaviour
         Vector2 orbitDelta = Vector2.zero;
         float dragDeltaY = 0f;
 
-        // ==========================================
-        // 1. TOUCH CONTROLS (Mobile / Web on Phone)
-        // ==========================================
-        if (Touch.activeTouches.Count > 0)
+        bool isOverUI = false;
+        if (UnityEngine.EventSystems.EventSystem.current != null)
         {
-            // ONE FINGER: Rotate or Drag
-            if (Touch.activeTouches.Count == 1)
+            if (UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
-                if (currentTouchMode == TouchMode.Rotate)
-                {
-                    orbitDelta = Touch.activeTouches[0].delta * touchXSpeed; // X and Y are handled below
-                }
-                else
-                {
-                    dragDeltaY = Touch.activeTouches[0].delta.y * touchDragYSpeed;
-                }
+                isOverUI = true;
             }
-            // TWO FINGERS: Pinch to Zoom
-            else if (Touch.activeTouches.Count == 2)
+            else if (Touchscreen.current != null && Touchscreen.current.primaryTouch.press.isPressed)
             {
-                Touch touchZero = Touch.activeTouches[0];
-                Touch touchOne = Touch.activeTouches[1];
-
-                // Find the position of the touches in the previous frame
-                Vector2 touchZeroPrevPos = touchZero.screenPosition - touchZero.delta;
-                Vector2 touchOnePrevPos = touchOne.screenPosition - touchOne.delta;
-
-                // Find the distance between the touches in the previous and current frames
-                float prevMagnitude = (touchZeroPrevPos - touchOnePrevPos).magnitude;
-                float currentMagnitude = (touchZero.screenPosition - touchOne.screenPosition).magnitude;
-
-                // The difference in magnitude is our zoom delta
-                float difference = currentMagnitude - prevMagnitude;
-
-                // Apply zoom (If distance increases, we zoom in, so we subtract)
-                distance = Mathf.Clamp(distance - (difference * touchZoomSpeed), minDistance, maxDistance);
+                if (UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(Touchscreen.current.primaryTouch.touchId.ReadValue()))
+                {
+                    isOverUI = true;
+                }
             }
         }
-        // ==========================================
-        // 2. MOUSE CONTROLS (PC / Web on Desktop)
-        // ==========================================
-        else if (Mouse.current != null)
+
+        if (!isOverUI)
         {
-            // Right Click: Rotate or Drag
-            if (Mouse.current.rightButton.isPressed)
+            // ==========================================
+            // 1. TOUCH CONTROLS (Mobile / Web on Phone)
+            // ==========================================
+            if (Touch.activeTouches.Count > 0)
             {
-                if (Keyboard.current != null && Keyboard.current.shiftKey.isPressed)
+                // ONE FINGER: Rotate or Drag
+                if (Touch.activeTouches.Count == 1)
                 {
-                    dragDeltaY = Mouse.current.delta.y.ReadValue() * mouseDragYSpeed;
+                    if (currentTouchMode == TouchMode.Rotate)
+                    {
+                        orbitDelta = Touch.activeTouches[0].delta * touchXSpeed; // X and Y are handled below
+                    }
+                    else
+                    {
+                        dragDeltaY = Touch.activeTouches[0].delta.y * touchDragYSpeed;
+                    }
                 }
-                else
+                // TWO FINGERS: Pinch to Zoom
+                else if (Touch.activeTouches.Count == 2)
                 {
-                    orbitDelta = Mouse.current.delta.ReadValue() * mouseXSpeed;
+                    Touch touchZero = Touch.activeTouches[0];
+                    Touch touchOne = Touch.activeTouches[1];
+
+                    // Find the position of the touches in the previous frame
+                    Vector2 touchZeroPrevPos = touchZero.screenPosition - touchZero.delta;
+                    Vector2 touchOnePrevPos = touchOne.screenPosition - touchOne.delta;
+
+                    // Find the distance between the touches in the previous and current frames
+                    float prevMagnitude = (touchZeroPrevPos - touchOnePrevPos).magnitude;
+                    float currentMagnitude = (touchZero.screenPosition - touchOne.screenPosition).magnitude;
+
+                    // The difference in magnitude is our zoom delta
+                    float difference = currentMagnitude - prevMagnitude;
+
+                    // Apply zoom (If distance increases, we zoom in, so we subtract)
+                    distance = Mathf.Clamp(distance - (difference * touchZoomSpeed), minDistance, maxDistance);
                 }
             }
-
-            // Scroll Wheel: Zoom
-            float scroll = Mouse.current.scroll.y.ReadValue();
-            if (scroll != 0.0f)
+            // ==========================================
+            // 2. MOUSE CONTROLS (PC / Web on Desktop)
+            // ==========================================
+            else if (Mouse.current != null)
             {
-                distance = Mathf.Clamp(distance - (scroll * mouseZoomSpeed), minDistance, maxDistance);
+                // Right Click: Rotate or Drag
+                if (Mouse.current.rightButton.isPressed)
+                {
+                    if (Keyboard.current != null && Keyboard.current.shiftKey.isPressed)
+                    {
+                        dragDeltaY = Mouse.current.delta.y.ReadValue() * mouseDragYSpeed;
+                    }
+                    else
+                    {
+                        orbitDelta = Mouse.current.delta.ReadValue() * mouseXSpeed;
+                    }
+                }
+
+                // Scroll Wheel: Zoom
+                float scroll = Mouse.current.scroll.y.ReadValue();
+                if (scroll != 0.0f)
+                {
+                    distance = Mathf.Clamp(distance - (scroll * mouseZoomSpeed), minDistance, maxDistance);
+                }
             }
         }
 
@@ -223,25 +279,5 @@ public class OrbitCamera : MonoBehaviour
         if (angle < -360F) angle += 360F;
         if (angle > 360F) angle -= 360F;
         return Mathf.Clamp(angle, min, max);
-    }
-
-    void OnGUI()
-    {
-        // Add a button that only appears when touch input is available
-        if (Touchscreen.current != null)
-        {
-            float btnWidth = 200f;
-            float btnHeight = 60f;
-            
-            // Define a simple style to make it readable
-            GUIStyle btnStyle = new GUIStyle(GUI.skin.button);
-            btnStyle.fontSize = 24;
-            
-            // Draw button at top center-left
-            if (GUI.Button(new Rect(Screen.width / 2 - btnWidth / 2, 20, btnWidth, btnHeight), "Mode: " + currentTouchMode.ToString(), btnStyle))
-            {
-                currentTouchMode = currentTouchMode == TouchMode.Rotate ? TouchMode.Drag : TouchMode.Rotate;
-            }
-        }
     }
 }
