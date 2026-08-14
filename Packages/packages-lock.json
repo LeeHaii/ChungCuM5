@@ -1,5 +1,15 @@
 {
   "dependencies": {
+    "com.besty.unity-skills": {
+      "version": "https://github.com/Besty0728/Unity-Skills.git?path=/SkillsForUnity",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {
+        "com.unity.nuget.newtonsoft-json": "3.0.2",
+        "com.unity.timeline": "1.7.7"
+      },
+      "hash": "56022692c5e299d965eb541c20493b658bad3974"
+    },
     "com.cesium.unity": {
       "version": "1.24.0",
       "depth": 0,
@@ -27,7 +37,7 @@
         "com.unity.nuget.newtonsoft-json": "3.0.2",
         "com.unity.test-framework": "1.1.31"
       },
-      "hash": "c14de1e6dc01ab42d2bb358730cff954bce0ce6b"
+      "hash": "4ce7dd3cc54e37e2ed6dc59cb5a047f3dccb3f50"
     },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
