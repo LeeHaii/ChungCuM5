@@ -31,6 +31,12 @@ namespace BimWebGLOptimization
             RemoveVerifiedCurve2Leaves();
         }
 
+        [MenuItem("Tools/WebGL Optimization/Apply Confirmed Milestone 4 Cleanup")]
+        private static void ApplyConfirmedMilestone4CleanupFromMenu()
+        {
+            ApplyConfirmedMilestone4Cleanup();
+        }
+
         private void OnGUI()
         {
             EditorGUILayout.LabelField("Active Scene", EditorStyles.boldLabel);
@@ -48,6 +54,22 @@ namespace BimWebGLOptimization
                 if (GUILayout.Button("Remove Verified Curve_2 Leaves", GUILayout.Height(28f)))
                 {
                     RemoveVerifiedCurve2Leaves();
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(lastReport == null || lastReport.ScenePath != scene.path))
+            {
+                if (GUILayout.Button("Apply Confirmed Milestone 4 Cleanup", GUILayout.Height(28f)))
+                {
+                    bool confirmed = EditorUtility.DisplayDialog(
+                        "Apply Milestone 4 Cleanup",
+                        "Apply the reviewed hierarchy, layer, and collider cleanup to the optimized scene?",
+                        "Apply",
+                        "Cancel");
+                    if (confirmed)
+                    {
+                        ApplyConfirmedMilestone4Cleanup();
+                    }
                 }
             }
 
@@ -180,6 +202,44 @@ namespace BimWebGLOptimization
             finally
             {
                 EditorUtility.ClearProgressBar();
+            }
+        }
+
+        private static void ApplyConfirmedMilestone4Cleanup()
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            if (!scene.IsValid() || !scene.isLoaded || !scene.path.EndsWith(OptimizedSceneSuffix, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Milestone 4 cleanup is restricted to a loaded _Optimized.unity scene.");
+            }
+
+            if (scene.isDirty)
+            {
+                throw new InvalidOperationException("Save or revert unrelated scene changes before Milestone 4 cleanup.");
+            }
+
+            if (lastReport == null || lastReport.ScenePath != scene.path)
+            {
+                throw new InvalidOperationException("Run and review the dry-run analyzer immediately before cleanup.");
+            }
+
+            try
+            {
+                BimWebGLCleanupSummary summary = BimWebGLMilestone4Cleanup.Apply(scene, lastReport);
+                Debug.Log(
+                    $"Milestone 4 cleanup complete: removed {summary.RemovedCurve2Leaves:N0} Curve_2 leaves, "
+                    + $"removed {summary.RemovedVisualMeshColliders:N0} visual MeshColliders, converted "
+                    + $"{summary.ConvertedCameraCollisionProxies:N0} camera MeshColliders to BoxColliders, restored "
+                    + $"{summary.RestoredNegativeScaleMeshColliders:N0} negative-scale camera MeshColliders, and assigned "
+                    + $"{summary.AssignedSelectableLayer + summary.AssignedBimInspectableLayer + summary.AssignedCameraCollisionLayer:N0} layers; "
+                    + $"disabled mesh Read/Write on {summary.DisabledMeshReadWriteImporters:N0} model assets.");
+
+                lastReport = BimWebGLOptimizationAnalyzer.AnalyzeActiveScene(writeReport: true);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                throw;
             }
         }
     }

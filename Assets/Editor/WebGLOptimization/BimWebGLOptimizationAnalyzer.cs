@@ -31,13 +31,25 @@ namespace BimWebGLOptimization
         public int TransformOnlyCurve2Count { get; set; }
         public int MeshColliderCount { get; set; }
         public int NonSelectableMeshColliderCount { get; set; }
+        public int RemovableVisualMeshColliderCount { get; set; }
+        public int BackgroundWallMeshColliderCount { get; set; }
+        public int BackgroundWallBoxProxyCount { get; set; }
+        public int BackgroundWallInvalidBoxProxyCount { get; set; }
         public int MetadataComponentCount { get; set; }
+        public int UnitObjectCount { get; set; }
+        public int BackgroundWallObjectCount { get; set; }
+        public int SelectableLayerAssignmentCount { get; set; }
+        public int BimInspectableLayerAssignmentCount { get; set; }
+        public int CameraCollisionLayerAssignmentCount { get; set; }
         public int ReadableMeshCount { get; set; }
+        public int ColliderRequiredReadableMeshCount { get; set; }
+        public int MeshReadWriteDisableCandidateCount { get; set; }
         public int RepeatedCombinationGroupCount { get; set; }
         public int RepeatedCombinationInstanceCount { get; set; }
         public int ObjectsWithoutStaticFlagsCount { get; set; }
         public int PotentialColliderProxyCount { get; set; }
         public IReadOnlyList<RepeatedRenderCombination> TopRepeatedCombinations { get; set; }
+        public IReadOnlyList<string> MeshReadWriteDisableCandidatePaths { get; set; }
 
         public string ToMarkdown()
         {
@@ -63,12 +75,30 @@ namespace BimWebGLOptimization
             builder.AppendLine($"| Transform-only `Curve_2` leaves | {TransformOnlyCurve2Count:N0} |");
             builder.AppendLine($"| MeshColliders | {MeshColliderCount:N0} |");
             builder.AppendLine($"| MeshColliders on non-selectable objects | {NonSelectableMeshColliderCount:N0} |");
+            builder.AppendLine($"| Purely visual MeshColliders eligible for removal | {RemovableVisualMeshColliderCount:N0} |");
+            builder.AppendLine($"| BackgroundWall MeshColliders | {BackgroundWallMeshColliderCount:N0} |");
+            builder.AppendLine($"| BackgroundWall MeshColliders eligible for BoxCollider proxies | {BackgroundWallBoxProxyCount:N0} |");
+            builder.AppendLine($"| Negative-scale BackgroundWall BoxColliders requiring repair | {BackgroundWallInvalidBoxProxyCount:N0} |");
             builder.AppendLine($"| Pixyz Metadata components | {MetadataComponentCount:N0} |");
+            builder.AppendLine($"| Unit-tagged objects | {UnitObjectCount:N0} |");
+            builder.AppendLine($"| BackgroundWall-tagged objects | {BackgroundWallObjectCount:N0} |");
+            builder.AppendLine($"| Planned Selectable layer assignments | {SelectableLayerAssignmentCount:N0} |");
+            builder.AppendLine($"| Planned BimInspectable layer assignments | {BimInspectableLayerAssignmentCount:N0} |");
+            builder.AppendLine($"| Planned CameraCollision layer assignments | {CameraCollisionLayerAssignmentCount:N0} |");
             builder.AppendLine($"| Distinct readable meshes | {ReadableMeshCount:N0} |");
+            builder.AppendLine($"| Readable meshes still required by MeshCollider | {ColliderRequiredReadableMeshCount:N0} |");
+            builder.AppendLine($"| Model assets safe to disable Read/Write | {MeshReadWriteDisableCandidateCount:N0} |");
             builder.AppendLine($"| Repeated mesh/material groups | {RepeatedCombinationGroupCount:N0} |");
             builder.AppendLine($"| Instances in repeated groups | {RepeatedCombinationInstanceCount:N0} |");
             builder.AppendLine($"| Objects without static flags | {ObjectsWithoutStaticFlagsCount:N0} |");
             builder.AppendLine($"| Potential collider proxies | {PotentialColliderProxyCount:N0} |");
+            builder.AppendLine();
+            builder.AppendLine("## Selection Guardrail");
+            builder.AppendLine();
+            builder.AppendLine(
+                $"{MeshColliderCount - NonSelectableMeshColliderCount:N0} MeshColliders are attached to apartment or BIM inspection targets. "
+                + "They remain because runtime metadata selection currently resolves the hit object or its immediate parent; "
+                + "grouped proxies require an element-ID mapping before these colliders can be removed safely.");
             builder.AppendLine();
             builder.AppendLine("## Top Repeated Mesh/Material Combinations");
             builder.AppendLine();
@@ -78,6 +108,21 @@ namespace BimWebGLOptimization
             foreach (RepeatedRenderCombination combination in TopRepeatedCombinations)
             {
                 builder.AppendLine($"| {EscapeTableCell(combination.MeshName)} | {EscapeTableCell(combination.MaterialNames)} | {combination.InstanceCount:N0} |");
+            }
+
+            builder.AppendLine();
+            builder.AppendLine("## Safe Read/Write Disable Candidates");
+            builder.AppendLine();
+            if (MeshReadWriteDisableCandidatePaths.Count == 0)
+            {
+                builder.AppendLine("(none)");
+            }
+            else
+            {
+                foreach (string path in MeshReadWriteDisableCandidatePaths)
+                {
+                    builder.AppendLine($"- `{path}`");
+                }
             }
 
             return builder.ToString();
@@ -120,6 +165,7 @@ namespace BimWebGLOptimization
             };
 
             HashSet<Mesh> sceneMeshes = new HashSet<Mesh>();
+            HashSet<Mesh> colliderMeshes = new HashSet<Mesh>();
             Dictionary<string, RenderCombinationAccumulator> renderCombinations =
                 new Dictionary<string, RenderCombinationAccumulator>(StringComparer.Ordinal);
 
@@ -153,28 +199,96 @@ namespace BimWebGLOptimization
                         report.ObjectsWithoutStaticFlagsCount++;
                     }
 
-                    if (IsTransformOnlyLeaf(transform))
+                    bool isTransformOnlyLeaf = IsTransformOnlyLeaf(transform);
+                    bool isRemovableCurve2 = isTransformOnlyLeaf
+                        && string.Equals(gameObject.name, "Curve_2", StringComparison.Ordinal);
+                    if (isTransformOnlyLeaf)
                     {
                         report.TransformOnlyLeafCount++;
-                        if (string.Equals(gameObject.name, "Curve_2", StringComparison.Ordinal))
+                        if (isRemovableCurve2)
                         {
                             report.TransformOnlyCurve2Count++;
                         }
                     }
 
                     Metadata metadata = gameObject.GetComponent<Metadata>();
-                    if (metadata != null)
+                    bool hasMetadata = metadata != null;
+                    bool hasParentMetadata = transform.parent != null
+                        && transform.parent.GetComponent<Metadata>() != null;
+                    bool isUnit = gameObject.CompareTag("Unit");
+                    bool isBackgroundWall = gameObject.CompareTag("BackgroundWall");
+                    bool isBimInspectable = hasMetadata || hasParentMetadata;
+                    string currentLayerName = LayerMask.LayerToName(gameObject.layer);
+
+                    if (hasMetadata)
                     {
                         report.MetadataComponentCount++;
                     }
 
+                    if (isRemovableCurve2)
+                    {
+                        continue;
+                    }
+
+                    if (isUnit)
+                    {
+                        report.UnitObjectCount++;
+                        if (!string.Equals(currentLayerName, "Selectable", StringComparison.Ordinal))
+                        {
+                            report.SelectableLayerAssignmentCount++;
+                        }
+                    }
+                    else if (isBackgroundWall)
+                    {
+                        report.BackgroundWallObjectCount++;
+                        if (!string.Equals(currentLayerName, "CameraCollision", StringComparison.Ordinal))
+                        {
+                            report.CameraCollisionLayerAssignmentCount++;
+                        }
+                    }
+                    else if (isBimInspectable)
+                    {
+                        if (!string.Equals(currentLayerName, "BimInspectable", StringComparison.Ordinal))
+                        {
+                            report.BimInspectableLayerAssignmentCount++;
+                        }
+                    }
+
                     MeshCollider meshCollider = gameObject.GetComponent<MeshCollider>();
+                    BoxCollider boxCollider = gameObject.GetComponent<BoxCollider>();
+                    if (isBackgroundWall
+                        && meshCollider == null
+                        && boxCollider != null
+                        && HasNegativeLossyScale(transform)
+                        && GetSharedMesh(gameObject) != null)
+                    {
+                        report.BackgroundWallInvalidBoxProxyCount++;
+                    }
+
                     if (meshCollider != null)
                     {
                         report.MeshColliderCount++;
-                        if (!IsSelectable(gameObject))
+                        if (meshCollider.sharedMesh != null)
+                        {
+                            colliderMeshes.Add(meshCollider.sharedMesh);
+                        }
+                        if (!isUnit && !isBimInspectable)
                         {
                             report.NonSelectableMeshColliderCount++;
+                        }
+
+                        if (!isUnit && !isBimInspectable && !isBackgroundWall)
+                        {
+                            report.RemovableVisualMeshColliderCount++;
+                        }
+
+                        if (isBackgroundWall)
+                        {
+                            report.BackgroundWallMeshColliderCount++;
+                            if (meshCollider.sharedMesh != null && !HasNegativeLossyScale(transform))
+                            {
+                                report.BackgroundWallBoxProxyCount++;
+                            }
                         }
 
                         Renderer colliderRenderer = gameObject.GetComponent<Renderer>();
@@ -215,6 +329,10 @@ namespace BimWebGLOptimization
             }
 
             report.ReadableMeshCount = sceneMeshes.Count(mesh => mesh != null && mesh.isReadable);
+            report.ColliderRequiredReadableMeshCount = sceneMeshes.Count(
+                mesh => mesh != null && mesh.isReadable && colliderMeshes.Contains(mesh));
+            report.MeshReadWriteDisableCandidatePaths = FindSafeReadableMeshImporterPaths(scene);
+            report.MeshReadWriteDisableCandidateCount = report.MeshReadWriteDisableCandidatePaths.Count;
             List<RepeatedRenderCombination> repeated = renderCombinations.Values
                 .Where(item => item.Count > 1)
                 .OrderByDescending(item => item.Count)
@@ -259,6 +377,81 @@ namespace BimWebGLOptimization
             return candidates;
         }
 
+        public static IReadOnlyList<string> FindSafeReadableMeshImporterPaths(Scene scene)
+        {
+            HashSet<Mesh> renderedMeshes = new HashSet<Mesh>();
+            HashSet<Mesh> colliderMeshes = new HashSet<Mesh>();
+
+            MeshFilter[] meshFilters = UnityEngine.Object.FindObjectsByType<MeshFilter>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+            foreach (MeshFilter meshFilter in meshFilters)
+            {
+                if (meshFilter.gameObject.scene == scene && meshFilter.sharedMesh != null)
+                {
+                    renderedMeshes.Add(meshFilter.sharedMesh);
+                }
+            }
+
+            SkinnedMeshRenderer[] skinnedMeshRenderers = UnityEngine.Object.FindObjectsByType<SkinnedMeshRenderer>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+            foreach (SkinnedMeshRenderer renderer in skinnedMeshRenderers)
+            {
+                if (renderer.gameObject.scene == scene && renderer.sharedMesh != null)
+                {
+                    renderedMeshes.Add(renderer.sharedMesh);
+                }
+            }
+
+            MeshCollider[] meshColliders = UnityEngine.Object.FindObjectsByType<MeshCollider>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+            foreach (MeshCollider meshCollider in meshColliders)
+            {
+                if (meshCollider.gameObject.scene == scene && meshCollider.sharedMesh != null)
+                {
+                    colliderMeshes.Add(meshCollider.sharedMesh);
+                }
+            }
+
+            SortedSet<string> candidatePaths = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (Mesh mesh in renderedMeshes)
+            {
+                if (mesh == null || !mesh.isReadable || colliderMeshes.Contains(mesh))
+                {
+                    continue;
+                }
+
+                string assetPath = AssetDatabase.GetAssetPath(mesh);
+                ModelImporter importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+                if (importer != null && importer.isReadable)
+                {
+                    candidatePaths.Add(assetPath);
+                }
+            }
+
+            return candidatePaths.ToArray();
+        }
+
+        public static bool HasNegativeLossyScale(Transform transform)
+        {
+            Vector3 scale = transform.lossyScale;
+            return scale.x < 0f || scale.y < 0f || scale.z < 0f;
+        }
+
+        public static Mesh GetSharedMesh(GameObject gameObject)
+        {
+            MeshFilter meshFilter = gameObject.GetComponent<MeshFilter>();
+            if (meshFilter != null)
+            {
+                return meshFilter.sharedMesh;
+            }
+
+            SkinnedMeshRenderer skinnedMeshRenderer = gameObject.GetComponent<SkinnedMeshRenderer>();
+            return skinnedMeshRenderer != null ? skinnedMeshRenderer.sharedMesh : null;
+        }
+
         private static bool IsTransformOnlyLeaf(Transform transform)
         {
             if (transform.childCount != 0)
@@ -268,25 +461,6 @@ namespace BimWebGLOptimization
 
             Component[] components = transform.GetComponents<Component>();
             return components.Length == 1 && components[0] is Transform;
-        }
-
-        private static bool IsSelectable(GameObject gameObject)
-        {
-            string layerName = LayerMask.LayerToName(gameObject.layer);
-            if (string.Equals(layerName, "Selectable", StringComparison.Ordinal)
-                || string.Equals(layerName, "BimInspectable", StringComparison.Ordinal)
-                || gameObject.CompareTag("Unit"))
-            {
-                return true;
-            }
-
-            if (gameObject.GetComponent<Metadata>() != null)
-            {
-                return true;
-            }
-
-            Transform parent = gameObject.transform.parent;
-            return parent != null && parent.GetComponent<Metadata>() != null;
         }
 
         private static long GetTriangleCount(Mesh mesh)

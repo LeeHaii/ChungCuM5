@@ -1,6 +1,6 @@
 # BIM WebGL Cleanup Dry Run
 
-Generated: 2026-08-14 09:37:31 UTC
+Generated: 2026-08-14 10:32:30 UTC
 
 Scene: `Assets/Scenes/AltScene_Optimized.unity`
 
@@ -10,21 +10,36 @@ No scene objects or assets were modified by this analysis.
 
 | Metric | Count |
 | --- | ---: |
-| GameObjects | 27,513 |
-| Active GameObjects | 27,410 |
+| GameObjects | 21,404 |
+| Active GameObjects | 21,301 |
 | Renderers | 14,734 |
 | Triangles | 1,388,069 |
 | Material slots | 18,027 |
-| Transform-only leaves | 6,111 |
-| Transform-only `Curve_2` leaves | 6,109 |
-| MeshColliders | 14,342 |
-| MeshColliders on non-selectable objects | 62 |
+| Transform-only leaves | 2 |
+| Transform-only `Curve_2` leaves | 0 |
+| MeshColliders | 14,290 |
+| MeshColliders on non-selectable objects | 10 |
+| Purely visual MeshColliders eligible for removal | 0 |
+| BackgroundWall MeshColliders | 10 |
+| BackgroundWall MeshColliders eligible for BoxCollider proxies | 0 |
+| Negative-scale BackgroundWall BoxColliders requiring repair | 0 |
 | Pixyz Metadata components | 14,362 |
-| Distinct readable meshes | 582 |
+| Unit-tagged objects | 224 |
+| BackgroundWall-tagged objects | 60 |
+| Planned Selectable layer assignments | 0 |
+| Planned BimInspectable layer assignments | 0 |
+| Planned CameraCollision layer assignments | 0 |
+| Distinct readable meshes | 580 |
+| Readable meshes still required by MeshCollider | 537 |
+| Model assets safe to disable Read/Write | 0 |
 | Repeated mesh/material groups | 417 |
 | Instances in repeated groups | 14,568 |
-| Objects without static flags | 27,457 |
-| Potential collider proxies | 6,447 |
+| Objects without static flags | 21,348 |
+| Potential collider proxies | 6,398 |
+
+## Selection Guardrail
+
+14,280 MeshColliders are attached to apartment or BIM inspection targets. They remain because runtime metadata selection currently resolves the hit object or its immediate parent; grouped proxies require an element-ID mapping before these colliders can be removed safely.
 
 ## Top Repeated Mesh/Material Combinations
 
@@ -55,3 +70,7 @@ No scene objects or assets were modified by this analysis.
 | Mesh_2468381 | Color #808080ff | 81 |
 | Mesh_2468409 | Color #808080ff | 81 |
 | Mesh_2468553 | Color #f9f9f9ff | 81 |
+
+## Safe Read/Write Disable Candidates
+
+(none)
