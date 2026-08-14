@@ -1,11 +1,8 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
-// We need this specific library for modern mobile touch controls
-using UnityEngine.InputSystem.EnhancedTouch; 
-// We use an alias here so Unity doesn't confuse it with the old legacy touch system
+using UnityEngine.InputSystem.EnhancedTouch;
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
-using TMPro;
 
 public class OrbitCamera : MonoBehaviour
 {
@@ -45,6 +42,7 @@ public class OrbitCamera : MonoBehaviour
 
     [Header("Collision")]
     public string collisionTag = "BackgroundWall";
+    [SerializeField] private LayerMask cameraCollisionMask = ~0;
 
     public enum TouchMode { Rotate, Drag }
     public TouchMode currentTouchMode = TouchMode.Rotate;
@@ -57,8 +55,14 @@ public class OrbitCamera : MonoBehaviour
     private float initialX;
     private float initialY;
 
-    // --- ENABLING ENHANCED TOUCH ---
-    // Enhanced touch must be explicitly turned on and off
+    private const int CollisionHitBufferSize = 64;
+    private readonly RaycastHit[] collisionHits = new RaycastHit[CollisionHitBufferSize];
+
+    private Button resetButton;
+    private Camera controlledCamera;
+    private Rect lastViewportRect;
+    private bool hasViewportRect;
+
     private void OnEnable() { EnhancedTouchSupport.Enable(); }
     private void OnDisable() { EnhancedTouchSupport.Disable(); }
 
@@ -73,6 +77,9 @@ public class OrbitCamera : MonoBehaviour
         initialX = x;
         initialY = y;
 
+        controlledCamera = GetComponent<Camera>();
+        CacheViewportRect();
+
         GameObject resetBtnObj = GameObject.Find("ButtonResetVIew");
         if (resetBtnObj == null)
         {
@@ -81,10 +88,10 @@ public class OrbitCamera : MonoBehaviour
 
         if (resetBtnObj != null)
         {
-            Button btn = resetBtnObj.GetComponent<Button>();
-            if (btn != null)
+            resetButton = resetBtnObj.GetComponent<Button>();
+            if (resetButton != null)
             {
-                btn.onClick.AddListener(ResetView);
+                resetButton.onClick.AddListener(ResetView);
             }
         }
 
@@ -106,6 +113,19 @@ public class OrbitCamera : MonoBehaviour
         }
 
         UpdateCameraPosition();
+    }
+
+    private void OnDestroy()
+    {
+        if (resetButton != null)
+        {
+            resetButton.onClick.RemoveListener(ResetView);
+        }
+
+        if (touchModeButton != null)
+        {
+            touchModeButton.onClick.RemoveListener(ToggleTouchMode);
+        }
     }
 
     public void ToggleTouchMode()
@@ -134,6 +154,7 @@ public class OrbitCamera : MonoBehaviour
     {
         Vector2 orbitDelta = Vector2.zero;
         float dragDeltaY = 0f;
+        bool cameraStateChanged = ViewportChanged();
 
         bool isOverUI = false;
         if (UnityEngine.EventSystems.EventSystem.current != null)
@@ -176,19 +197,19 @@ public class OrbitCamera : MonoBehaviour
                     Touch touchZero = Touch.activeTouches[0];
                     Touch touchOne = Touch.activeTouches[1];
 
-                    // Find the position of the touches in the previous frame
                     Vector2 touchZeroPrevPos = touchZero.screenPosition - touchZero.delta;
                     Vector2 touchOnePrevPos = touchOne.screenPosition - touchOne.delta;
 
-                    // Find the distance between the touches in the previous and current frames
                     float prevMagnitude = (touchZeroPrevPos - touchOnePrevPos).magnitude;
                     float currentMagnitude = (touchZero.screenPosition - touchOne.screenPosition).magnitude;
-
-                    // The difference in magnitude is our zoom delta
                     float difference = currentMagnitude - prevMagnitude;
+                    float nextDistance = Mathf.Clamp(distance - (difference * touchZoomSpeed), minDistance, maxDistance);
 
-                    // Apply zoom (If distance increases, we zoom in, so we subtract)
-                    distance = Mathf.Clamp(distance - (difference * touchZoomSpeed), minDistance, maxDistance);
+                    if (!Mathf.Approximately(nextDistance, distance))
+                    {
+                        distance = nextDistance;
+                        cameraStateChanged = true;
+                    }
                 }
             }
             // ==========================================
@@ -213,7 +234,12 @@ public class OrbitCamera : MonoBehaviour
                 float scroll = Mouse.current.scroll.y.ReadValue();
                 if (scroll != 0.0f)
                 {
-                    distance = Mathf.Clamp(distance - (scroll * mouseZoomSpeed), minDistance, maxDistance);
+                    float nextDistance = Mathf.Clamp(distance - (scroll * mouseZoomSpeed), minDistance, maxDistance);
+                    if (!Mathf.Approximately(nextDistance, distance))
+                    {
+                        distance = nextDistance;
+                        cameraStateChanged = true;
+                    }
                 }
             }
         }
@@ -229,15 +255,20 @@ public class OrbitCamera : MonoBehaviour
             y -= orbitDelta.y; // Inverted so dragging down looks up
 
             y = ClampAngle(y, yMinLimit, yMaxLimit);
+            cameraStateChanged = true;
         }
 
         if (dragDeltaY != 0)
         {
             pivotPoint.y -= dragDeltaY;
             pivotPoint.y = Mathf.Clamp(pivotPoint.y, dragYMinLimit, dragYMaxLimit);
+            cameraStateChanged = true;
         }
 
-        UpdateCameraPosition();
+        if (cameraStateChanged)
+        {
+            UpdateCameraPosition();
+        }
     }
 
     void UpdateCameraPosition()
@@ -246,13 +277,21 @@ public class OrbitCamera : MonoBehaviour
         Vector3 direction = rotation * Vector3.back;
         Vector3 desiredPosition = pivotPoint + direction * distance;
 
-        RaycastHit[] hits = Physics.RaycastAll(pivotPoint, direction, distance);
+        int hitCount = Physics.RaycastNonAlloc(
+            pivotPoint,
+            direction,
+            collisionHits,
+            distance,
+            cameraCollisionMask,
+            QueryTriggerInteraction.Ignore);
+
         float closestDistance = distance;
         bool hitWall = false;
         Vector3 wallHitPoint = Vector3.zero;
 
-        foreach (RaycastHit hit in hits)
+        for (int i = 0; i < hitCount; i++)
         {
+            RaycastHit hit = collisionHits[i];
             if (!string.IsNullOrEmpty(collisionTag) && hit.collider.CompareTag(collisionTag))
             {
                 if (hit.distance < closestDistance)
@@ -272,6 +311,36 @@ public class OrbitCamera : MonoBehaviour
 
         transform.rotation = rotation;
         transform.position = desiredPosition;
+    }
+
+    private bool ViewportChanged()
+    {
+        if (controlledCamera == null)
+        {
+            return false;
+        }
+
+        Rect currentViewportRect = controlledCamera.rect;
+        if (hasViewportRect && currentViewportRect == lastViewportRect)
+        {
+            return false;
+        }
+
+        lastViewportRect = currentViewportRect;
+        hasViewportRect = true;
+        return true;
+    }
+
+    private void CacheViewportRect()
+    {
+        if (controlledCamera == null)
+        {
+            hasViewportRect = false;
+            return;
+        }
+
+        lastViewportRect = controlledCamera.rect;
+        hasViewportRect = true;
     }
 
     private float ClampAngle(float angle, float min, float max)

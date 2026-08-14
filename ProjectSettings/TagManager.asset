@@ -15,9 +15,9 @@ TagManager:
   - 
   - Water
   - UI
-  - 
-  - 
-  - 
+  - Selectable
+  - BimInspectable
+  - CameraCollision
   - 
   - 
   - 

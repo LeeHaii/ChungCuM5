@@ -17,12 +17,14 @@ public class UnitSelectionManager : MonoBehaviour
     private void Update()
     {
         bool wasPressed = false;
+        bool canUseHoverCache = false;
         Vector2 screenPos = Vector2.zero;
 
         // Read input from the new Input System
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             wasPressed = true;
+            canUseHoverCache = true;
             screenPos = Mouse.current.position.ReadValue();
         }
         else if (Touchscreen.current != null && Touchscreen.current.primaryTouch.press.wasPressedThisFrame)
@@ -33,11 +35,11 @@ public class UnitSelectionManager : MonoBehaviour
 
         if (wasPressed)
         {
-            HandleClick(screenPos);
+            HandleClick(screenPos, canUseHoverCache);
         }
     }
 
-    private void HandleClick(Vector2 screenPos)
+    private void HandleClick(Vector2 screenPos, bool canUseHoverCache)
     {
         // Ignore click if the pointer is over a UI element
         if (EventSystem.current != null)
@@ -59,9 +61,13 @@ public class UnitSelectionManager : MonoBehaviour
 
         if (_mainCamera == null) return;
 
-        Ray ray = _mainCamera.ScreenPointToRay(screenPos);
+        RaycastHit hit = default;
+        bool usedHoverCache = canUseHoverCache
+            && HoverManager.Instance != null
+            && HoverManager.Instance.TryGetCachedRaycast(screenPos, out hit);
 
-        if (Physics.Raycast(ray, out RaycastHit hit))
+        bool hitFound = usedHoverCache ? hit.collider != null : RaycastForSelection(screenPos, out hit);
+        if (hitFound)
         {
             GameObject clickedObject = hit.collider.gameObject;
 
@@ -73,5 +79,23 @@ public class UnitSelectionManager : MonoBehaviour
                 }
             }
         }
+    }
+
+    private bool RaycastForSelection(Vector2 screenPosition, out RaycastHit hit)
+    {
+        Ray ray = _mainCamera.ScreenPointToRay(screenPosition);
+        HoverManager hoverManager = HoverManager.Instance;
+
+        if (hoverManager != null)
+        {
+            return Physics.Raycast(
+                ray,
+                out hit,
+                hoverManager.MaxRaycastDistance,
+                hoverManager.SelectableMask,
+                QueryTriggerInteraction.Ignore);
+        }
+
+        return Physics.Raycast(ray, out hit, Mathf.Infinity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 }

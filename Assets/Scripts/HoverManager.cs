@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 public class HoverManager : MonoBehaviour
@@ -12,23 +13,40 @@ public class HoverManager : MonoBehaviour
     [Range(0f, 1f)]
     public float darkenMultiplier = 0.7f;
 
+    [Header("Raycast")]
+    [SerializeField] private LayerMask selectableMask = ~0;
+    [SerializeField, Min(0.01f)] private float maxRaycastDistance = 5000f;
+
     public BimDataProperties bimDataProperties;
-    // Tracking variables
+
     private Transform currentHoveredObject;
     private Renderer currentRenderer;
     private HighlightType currentHighlightType = HighlightType.None;
-    
+
     private Camera mainCamera;
     private MaterialPropertyBlock propertyBlock;
+    private Vector2 lastPointerPosition;
+    private RaycastHit lastRaycastHit;
+    private bool hasPointerPosition;
+    private bool hasCachedRaycast;
+    private bool wasPointerOverUI;
+    private bool hasPointerOverUIState;
 
     public static HoverManager Instance { get; private set; }
     public Renderer CurrentHoveredRenderer => currentRenderer;
     public float DarkenMultiplier => darkenMultiplier;
+    public LayerMask SelectableMask => selectableMask;
+    public float MaxRaycastDistance => maxRaycastDistance;
 
     void Awake()
     {
-        if (Instance == null) Instance = this;
-        else Destroy(gameObject);
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
     }
 
     void Start()
@@ -42,34 +60,61 @@ public class HoverManager : MonoBehaviour
         if (Mouse.current == null || mainCamera == null) return;
 
         Vector2 mousePos = Mouse.current.position.ReadValue();
+        bool isPointerOverUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        bool pointerMoved = !hasPointerPosition || mousePos != lastPointerPosition;
+        bool uiStateChanged = !hasPointerOverUIState || isPointerOverUI != wasPointerOverUI;
+
+        if (!pointerMoved && !uiStateChanged)
+        {
+            return;
+        }
+
+        lastPointerPosition = mousePos;
+        hasPointerPosition = true;
+        wasPointerOverUI = isPointerOverUI;
+        hasPointerOverUIState = true;
+
+        if (isPointerOverUI)
+        {
+            hasCachedRaycast = false;
+            RemoveHighlight();
+            return;
+        }
+
         Ray ray = mainCamera.ScreenPointToRay(mousePos);
 
-        if (Physics.Raycast(ray, out RaycastHit hit))
+        bool hitFound = Physics.Raycast(
+            ray,
+            out RaycastHit hit,
+            maxRaycastDistance,
+            selectableMask,
+            QueryTriggerInteraction.Ignore);
+
+        lastRaycastHit = hitFound ? hit : default;
+        hasCachedRaycast = true;
+
+        if (hitFound)
         {
             Transform hitTransform = hit.transform;
 
-            // If we are looking at a NEW object
             if (hitTransform != currentHoveredObject)
             {
                 RemoveHighlight();
 
-                // 1. Check for the "Unit" tag first (Priority 1)
                 if (hitTransform.CompareTag(targetTag))
                 {
                     ApplyDarken(hitTransform);
                 }
-                // 2. Check for Metadata component on the object itself
-                else 
+                else
                 {
                     bool hasMetadata = hitTransform.TryGetComponent<Pixyz.ImportSDK.Metadata>(out _);
-                    
-                    // 3. If no metadata on the object, check 1 level above (its parent)
+
                     if (!hasMetadata && hitTransform.parent != null)
                     {
                         hasMetadata = hitTransform.parent.TryGetComponent<Pixyz.ImportSDK.Metadata>(out _);
                     }
 
-                    if (hasMetadata && bimDataProperties.GetBIMdata())
+                    if (hasMetadata && bimDataProperties != null && bimDataProperties.GetBIMdata())
                     {
                         ApplyDarken(hitTransform);
                     }
@@ -78,9 +123,32 @@ public class HoverManager : MonoBehaviour
         }
         else
         {
-            // Hovering over empty space
             RemoveHighlight();
         }
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    private void OnDisable()
+    {
+        hasCachedRaycast = false;
+        hasPointerPosition = false;
+        hasPointerOverUIState = false;
+        RemoveHighlight();
+    }
+
+    public bool TryGetCachedRaycast(Vector2 screenPosition, out RaycastHit hit)
+    {
+        hit = lastRaycastHit;
+        return hasCachedRaycast
+            && hasPointerPosition
+            && (screenPosition - lastPointerPosition).sqrMagnitude <= 0.01f;
     }
 
     private void ApplyDarken(Transform obj)
@@ -93,11 +161,16 @@ public class HoverManager : MonoBehaviour
             currentHighlightType = HighlightType.Darken;
 
             Color originalColor = Color.white;
-            
-            if (currentRenderer.sharedMaterial.HasProperty("_BaseColor"))
-                originalColor = currentRenderer.sharedMaterial.GetColor("_BaseColor");
-            else if (currentRenderer.sharedMaterial.HasProperty("_Color"))
-                originalColor = currentRenderer.sharedMaterial.color;
+            Material sharedMaterial = currentRenderer.sharedMaterial;
+            if (sharedMaterial == null)
+            {
+                return;
+            }
+
+            if (sharedMaterial.HasProperty("_BaseColor"))
+                originalColor = sharedMaterial.GetColor("_BaseColor");
+            else if (sharedMaterial.HasProperty("_Color"))
+                originalColor = sharedMaterial.color;
 
             Color darkenedColor = new Color(
                 originalColor.r * darkenMultiplier,
@@ -107,8 +180,8 @@ public class HoverManager : MonoBehaviour
             );
 
             currentRenderer.GetPropertyBlock(propertyBlock);
-            
-            if (currentRenderer.sharedMaterial.HasProperty("_BaseColor"))
+
+            if (sharedMaterial.HasProperty("_BaseColor"))
                 propertyBlock.SetColor("_BaseColor", darkenedColor);
             else
                 propertyBlock.SetColor("_Color", darkenedColor);
@@ -121,14 +194,12 @@ public class HoverManager : MonoBehaviour
     {
         if (currentHoveredObject != null && currentRenderer != null)
         {
-            // Undo the specific effect based on what we applied
             if (currentHighlightType == HighlightType.Darken)
             {
                 currentRenderer.SetPropertyBlock(null);
             }
         }
 
-        // Wipe variables clean
         currentHoveredObject = null;
         currentRenderer = null;
         currentHighlightType = HighlightType.None;

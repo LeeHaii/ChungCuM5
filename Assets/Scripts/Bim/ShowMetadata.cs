@@ -50,6 +50,7 @@ public class ShowMetadata : MonoBehaviour
         if (mainCamera == null) return;
 
         bool isClicking = false;
+        bool canUseHoverCache = false;
         Vector2 clickPosition = Vector2.zero;
         bool isOverUI = false;
 
@@ -72,6 +73,7 @@ public class ShowMetadata : MonoBehaviour
         else if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             isClicking = true;
+            canUseHoverCache = true;
             clickPosition = Mouse.current.position.ReadValue();
             
             // Mouse-specific UI check
@@ -84,9 +86,13 @@ public class ShowMetadata : MonoBehaviour
         {
             if (isOverUI) return; // Prevent raycast if touching the scrollbar or text
 
-            Ray ray = mainCamera.ScreenPointToRay(clickPosition);
+            RaycastHit hit = default;
+            bool usedHoverCache = canUseHoverCache
+                && HoverManager.Instance != null
+                && HoverManager.Instance.TryGetCachedRaycast(clickPosition, out hit);
 
-            if (Physics.Raycast(ray, out RaycastHit hit))
+            bool hitFound = usedHoverCache ? hit.collider != null : RaycastForSelection(clickPosition, out hit);
+            if (hitFound)
             {
                 GameObject clickedObject = hit.collider.gameObject;
                 GameObject targetObj = GetTargetWithMetadata(clickedObject);
@@ -101,6 +107,24 @@ public class ShowMetadata : MonoBehaviour
                 }
             }
         }
+    }
+
+    private bool RaycastForSelection(Vector2 screenPosition, out RaycastHit hit)
+    {
+        Ray ray = mainCamera.ScreenPointToRay(screenPosition);
+        HoverManager hoverManager = HoverManager.Instance;
+
+        if (hoverManager != null)
+        {
+            return Physics.Raycast(
+                ray,
+                out hit,
+                hoverManager.MaxRaycastDistance,
+                hoverManager.SelectableMask,
+                QueryTriggerInteraction.Ignore);
+        }
+
+        return Physics.Raycast(ray, out hit, Mathf.Infinity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 
     private GameObject GetTargetWithMetadata(GameObject obj)
