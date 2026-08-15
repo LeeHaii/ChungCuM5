@@ -108,6 +108,8 @@ public class HouseAPIManager : MonoBehaviour
             }
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         Debug.Log($"Successfully assigned {houseIndex} houses to Unit GameObjects.");
+#endif
     }
 }

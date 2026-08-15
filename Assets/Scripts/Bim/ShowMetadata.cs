@@ -1,11 +1,11 @@
 using System.Collections.Generic;
+using BimRuntime;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
-using UnityEngine.InputSystem;   
-using UnityEngine.EventSystems;  
-// Added Enhanced Touch
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.EnhancedTouch;
+using UnityEngine.UI;
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
 
 public class ShowMetadata : MonoBehaviour
@@ -13,7 +13,7 @@ public class ShowMetadata : MonoBehaviour
     [Header("UI References")]
     [SerializeField] private GameObject entryPrefab;
     [SerializeField] private ScrollRect entriesPanel;
-    private List<GameObject> entries = new List<GameObject>();
+    private readonly List<BimMetadataRowView> entries = new List<BimMetadataRowView>(32);
 
     [Header("Position")]
     [SerializeField] private TextMeshProUGUI corHeader;
@@ -24,28 +24,33 @@ public class ShowMetadata : MonoBehaviour
     [Header("Metadata Filtering")]
     [Tooltip("If key or value contains these strings, the entire entry is hidden.")]
     public List<string> keysToIgnore = new List<string>();
-    
+
     [Tooltip("These strings will be removed from keys and values (e.g. 'IFCLIST/' -> '').")]
     public List<string> stringsToRemoveFromKeys = new List<string>();
 
-    private GameObject lastSelectedObject; 
+    private Transform lastSelectedTransform;
+    private int lastSelectedElementIndex = -1;
     private Camera mainCamera;
+    private int activeEntryCount;
 
-    // Enable touch tracking
-    private void OnEnable() { EnhancedTouchSupport.Enable(); }
-    private void OnDisable() { EnhancedTouchSupport.Disable(); }
-
-    void Start()
+    private void OnEnable()
     {
-        mainCamera = Camera.main;
-        
-        if (entryPrefab != null) 
-            entryPrefab.SetActive(false);
-            
-        ClearUI(); 
+        EnhancedTouchSupport.Enable();
     }
 
-    void Update()
+    private void OnDisable()
+    {
+        EnhancedTouchSupport.Disable();
+    }
+
+    private void Start()
+    {
+        mainCamera = Camera.main;
+        if (entryPrefab != null) entryPrefab.SetActive(false);
+        ClearUI();
+    }
+
+    private void Update()
     {
         if (mainCamera == null) return;
 
@@ -54,58 +59,56 @@ public class ShowMetadata : MonoBehaviour
         Vector2 clickPosition = Vector2.zero;
         bool isOverUI = false;
 
-        // 1. Check for Touch (Mobile)
         if (Touch.activeTouches.Count > 0)
         {
             Touch touch = Touch.activeTouches[0];
-            // Only trigger on the exact frame the finger touches the screen
             if (touch.phase == UnityEngine.InputSystem.TouchPhase.Began)
             {
                 isClicking = true;
                 clickPosition = touch.screenPosition;
-                
-                // Touch-specific UI check using the finger's unique ID
-                if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.touchId))
-                    isOverUI = true;
+                isOverUI = EventSystem.current != null
+                    && EventSystem.current.IsPointerOverGameObject(touch.touchId);
             }
         }
-        // 2. Check for Mouse (PC)
         else if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             isClicking = true;
             canUseHoverCache = true;
             clickPosition = Mouse.current.position.ReadValue();
-            
-            // Mouse-specific UI check
-            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-                isOverUI = true;
+            isOverUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
-        // 3. Process the Raycast if a valid click/tap happened
-        if (isClicking)
+        if (!isClicking || isOverUI) return;
+
+        RaycastHit hit = default;
+        bool usedHoverCache = canUseHoverCache
+            && HoverManager.Instance != null
+            && HoverManager.Instance.TryGetCachedRaycast(clickPosition, out hit);
+        bool hitFound = usedHoverCache ? hit.collider != null : RaycastForSelection(clickPosition, out hit);
+        if (!hitFound) return;
+
+        if (TryGetHouseTarget(hit.collider.transform, out HouseComponent houseComponent))
         {
-            if (isOverUI) return; // Prevent raycast if touching the scrollbar or text
-
-            RaycastHit hit = default;
-            bool usedHoverCache = canUseHoverCache
-                && HoverManager.Instance != null
-                && HoverManager.Instance.TryGetCachedRaycast(clickPosition, out hit);
-
-            bool hitFound = usedHoverCache ? hit.collider != null : RaycastForSelection(clickPosition, out hit);
-            if (hitFound)
+            if (houseComponent.transform != lastSelectedTransform || lastSelectedElementIndex != -1)
             {
-                GameObject clickedObject = hit.collider.gameObject;
-                GameObject targetObj = GetTargetWithMetadata(clickedObject);
-
-                if (targetObj != null)
-                {
-                    if (targetObj != lastSelectedObject)
-                    {
-                        lastSelectedObject = targetObj;
-                        OnObjectSelected(targetObj);
-                    }
-                }
+                lastSelectedTransform = houseComponent.transform;
+                lastSelectedElementIndex = -1;
+                ShowHouseMetadata(houseComponent);
+                OpenWindow();
             }
+
+            return;
+        }
+
+        BimMetadataStore store = BimMetadataStore.Instance;
+        if (store != null
+            && store.TryGetElement(hit, out BimMetadataElement element)
+            && (element.Target != lastSelectedTransform || element.ElementIndex != lastSelectedElementIndex))
+        {
+            lastSelectedTransform = element.Target;
+            lastSelectedElementIndex = element.ElementIndex;
+            ShowBimMetadata(element);
+            OpenWindow();
         }
     }
 
@@ -113,7 +116,6 @@ public class ShowMetadata : MonoBehaviour
     {
         Ray ray = mainCamera.ScreenPointToRay(screenPosition);
         HoverManager hoverManager = HoverManager.Instance;
-
         if (hoverManager != null)
         {
             return Physics.Raycast(
@@ -127,119 +129,133 @@ public class ShowMetadata : MonoBehaviour
         return Physics.Raycast(ray, out hit, Mathf.Infinity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 
-    private GameObject GetTargetWithMetadata(GameObject obj)
+    private static bool TryGetHouseTarget(Transform source, out HouseComponent houseComponent)
     {
-        if (obj.TryGetComponent(out HouseComponent houseComp) && houseComp.Data != null) return obj;
-        if (obj.TryGetComponent(out Pixyz.ImportSDK.Metadata pixyzMetadata)) return obj;
-
-        if (obj.transform.parent != null)
+        Transform current = source;
+        for (int depth = 0; current != null && depth < 3; depth++, current = current.parent)
         {
-            GameObject parentObj = obj.transform.parent.gameObject;
-            if (parentObj.TryGetComponent(out HouseComponent pHouseComp) && pHouseComp.Data != null) return parentObj;
-            if (parentObj.TryGetComponent(out Pixyz.ImportSDK.Metadata pPixyz)) return parentObj;
-        }
-
-        HouseComponent cHouseComp = obj.GetComponentInChildren<HouseComponent>();
-        if (cHouseComp != null && cHouseComp.Data != null) return cHouseComp.gameObject;
-
-        Pixyz.ImportSDK.Metadata cPixyz = obj.GetComponentInChildren<Pixyz.ImportSDK.Metadata>();
-        if (cPixyz != null) return cPixyz.gameObject;
-
-        return null;
-    }
-
-    private void OnObjectSelected(GameObject selectedObj)
-    {
-        CleanEntries();
-        if (selectedObj != null)
-        {
-            ShowingMetaData(selectedObj);
-            var mwm = GetComponent<Michsky.MUIP.ModalWindowManager>();
-            if (mwm != null) mwm.OpenWindow();
-        }
-    }
-
-    private void ShowingMetaData(GameObject obj)
-    {
-        GameObject targetObj = obj;
-        bool hasHouseComp = targetObj.TryGetComponent(out HouseComponent houseComp) && houseComp.Data != null;
-        bool hasPixyz = targetObj.TryGetComponent(out Pixyz.ImportSDK.Metadata pixyzMetadata);
-
-        corHeader.text = targetObj.name;
-        xcor.text = "X: " + Mathf.Round(targetObj.transform.position.x);
-        ycor.text = "Y: " + Mathf.Round(targetObj.transform.position.y);
-        zcor.text = "Z: " + Mathf.Round(targetObj.transform.position.z);
-
-        // Try getting House data first (Priority)
-        if (hasHouseComp)
-        {
-            corHeader.text = houseComp.Data.title; // Override header with House title
-            
-            AddUIEntry("ID", houseComp.Data.id.ToString());
-            AddUIEntry("Price", string.Format("{0:N0} VND", houseComp.Data.price));
-            AddUIEntry("Description", houseComp.Data.description);
-            AddUIEntry("Area", houseComp.Data.area_m2 + " m²");
-            AddUIEntry("Status", houseComp.Data.status);
-            AddUIEntry("Residents", houseComp.Data.residential_number.ToString());
-        }
-        // Fallback to Pixyz Metadata if no HouseComponent is found or if both exist
-        else if (hasPixyz)
-        {
-            foreach (var property in pixyzMetadata.getProperties())
+            if (current.TryGetComponent(out houseComponent) && houseComponent.Data != null)
             {
-                string key = property.Key;
-                string value = property.Value;
-
-                bool shouldIgnore = false;
-                foreach (string ignoreStr in keysToIgnore)
-                {
-                    if (key.Contains(ignoreStr) || value.Contains(ignoreStr))
-                    {
-                        shouldIgnore = true;
-                        break;
-                    }
-                }
-                if (shouldIgnore) continue;
-
-                foreach (string removeStr in stringsToRemoveFromKeys)
-                {
-                    key = key.Replace(removeStr, "");
-                    value = value.Replace(removeStr, "");
-                }
-
-                AddUIEntry(key, value);
+                return true;
             }
+        }
+
+        houseComponent = source != null ? source.GetComponentInChildren<HouseComponent>(true) : null;
+        return houseComponent != null && houseComponent.Data != null;
+    }
+
+    private void ShowHouseMetadata(HouseComponent houseComponent)
+    {
+        BeginPopulate(houseComponent.transform, houseComponent.Data.title);
+        AddUIEntry("ID", houseComponent.Data.id.ToString());
+        AddUIEntry("Price", string.Format("{0:N0} VND", houseComponent.Data.price));
+        AddUIEntry("Description", houseComponent.Data.description);
+        AddUIEntry("Area", houseComponent.Data.area_m2 + " m²");
+        AddUIEntry("Status", houseComponent.Data.status);
+        AddUIEntry("Residents", houseComponent.Data.residential_number.ToString());
+        EndPopulate();
+    }
+
+    private void ShowBimMetadata(BimMetadataElement element)
+    {
+        BeginPopulate(element.Target, element.DisplayName);
+
+        for (int i = 0; i < element.PropertyCount; i++)
+        {
+            if (!element.TryGetProperty(i, out string key, out string value) || ShouldIgnore(key, value))
+            {
+                continue;
+            }
+
+            RemoveConfiguredStrings(ref key, ref value);
+            AddUIEntry(key, value);
+        }
+
+        EndPopulate();
+    }
+
+    private void BeginPopulate(Transform target, string title)
+    {
+        activeEntryCount = 0;
+        if (corHeader != null) corHeader.SetText(string.IsNullOrEmpty(title) ? target.name : title);
+        Vector3 position = target.position;
+        if (xcor != null) xcor.SetText("X: {0:0}", position.x);
+        if (ycor != null) ycor.SetText("Y: {0:0}", position.y);
+        if (zcor != null) zcor.SetText("Z: {0:0}", position.z);
+    }
+
+    private void EndPopulate()
+    {
+        for (int i = activeEntryCount; i < entries.Count; i++)
+        {
+            entries[i].gameObject.SetActive(false);
+        }
+    }
+
+    private bool ShouldIgnore(string key, string value)
+    {
+        for (int i = 0; i < keysToIgnore.Count; i++)
+        {
+            string ignored = keysToIgnore[i];
+            if (!string.IsNullOrEmpty(ignored)
+                && ((key?.Contains(ignored) ?? false) || (value?.Contains(ignored) ?? false)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void RemoveConfiguredStrings(ref string key, ref string value)
+    {
+        for (int i = 0; i < stringsToRemoveFromKeys.Count; i++)
+        {
+            string removed = stringsToRemoveFromKeys[i];
+            if (string.IsNullOrEmpty(removed)) continue;
+            key = key?.Replace(removed, string.Empty);
+            value = value?.Replace(removed, string.Empty);
         }
     }
 
     private void AddUIEntry(string key, string value)
     {
-        GameObject newEntry = Instantiate(entryPrefab, entriesPanel.content);
-        newEntry.SetActive(true);
-        newEntry.transform.Find("Key").GetComponentInChildren<TextMeshProUGUI>().SetText(key);
-        newEntry.transform.Find("Value").GetComponentInChildren<TextMeshProUGUI>().SetText(value);
-        entries.Add(newEntry);
+        if (entryPrefab == null || entriesPanel == null || entriesPanel.content == null) return;
+
+        BimMetadataRowView row;
+        if (activeEntryCount < entries.Count)
+        {
+            row = entries[activeEntryCount];
+        }
+        else
+        {
+            GameObject instance = Instantiate(entryPrefab, entriesPanel.content);
+            row = instance.GetComponent<BimMetadataRowView>();
+            if (row == null) row = instance.AddComponent<BimMetadataRowView>();
+            entries.Add(row);
+        }
+
+        row.Bind(key ?? string.Empty, value ?? string.Empty);
+        row.gameObject.SetActive(true);
+        activeEntryCount++;
     }
 
-    private void CleanEntries()
+    private void OpenWindow()
     {
-        if (entries.Count == 0) return;
-        foreach (var entry in entries)
-        {
-            Destroy(entry);
-        }
-        entries.Clear();
+        Michsky.MUIP.ModalWindowManager window = GetComponent<Michsky.MUIP.ModalWindowManager>();
+        if (window != null) window.OpenWindow();
     }
 
     private void ClearUI()
     {
-        CleanEntries();
-        corHeader.text = "No Object Selected";
-        xcor.text = "X: --";
-        ycor.text = "Y: --";
-        zcor.text = "Z: --";
-        
-        var mwm = GetComponent<Michsky.MUIP.ModalWindowManager>();
-        if (mwm != null) mwm.CloseWindow();
+        activeEntryCount = 0;
+        EndPopulate();
+        if (corHeader != null) corHeader.SetText("No Object Selected");
+        if (xcor != null) xcor.SetText("X: --");
+        if (ycor != null) ycor.SetText("Y: --");
+        if (zcor != null) zcor.SetText("Z: --");
+
+        Michsky.MUIP.ModalWindowManager window = GetComponent<Michsky.MUIP.ModalWindowManager>();
+        if (window != null) window.CloseWindow();
     }
 }

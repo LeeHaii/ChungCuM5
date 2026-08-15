@@ -17,10 +17,13 @@ namespace Database
             // Instantiate service via Interface
             _quanLyService = new SqliteQuanLyService(dbPath);
 
-            // Test fetching data
+            // Diagnostic data enumeration is excluded from shipping builds.
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             FetchAndLogCanHoData();
+#endif
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private void FetchAndLogCanHoData()
         {
             Debug.Log("[UIManager] Đang tải danh sách căn hộ từ SQLite...");
@@ -40,5 +43,6 @@ namespace Database
                 }
             );
         }
+#endif
     }
 }

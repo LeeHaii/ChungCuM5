@@ -1,0 +1,53 @@
+{
+    "generatedUtc": "2026-08-15T05:41:55.1517504Z",
+    "unityVersion": "6000.3.17f1",
+    "scene": "Assets/Scenes/AltScene_Optimized.unity",
+    "outputPath": "Builds/WebGL/RuntimeSpeedLto-DXT-High-Sky2048",
+    "buildKind": "RuntimeSpeedLto",
+    "qualityVariant": "High",
+    "textureSubtarget": "DXT",
+    "wasmCodeOptimization": "RuntimeSpeedLTO",
+    "il2CppCodeGeneration": "OptimizeSpeed",
+    "result": "Succeeded",
+    "development": false,
+    "autoConnectProfiler": false,
+    "brotli": true,
+    "decompressionFallback": false,
+    "dataCaching": true,
+    "hashedFileNames": true,
+    "skyMaxSize": 2048,
+    "buildSeconds": 2930.0170184,
+    "reportedTotalBytes": 19963690,
+    "errors": 0,
+    "warnings": 0,
+    "files": [
+        {
+            "path": "Build/30562c530863a870342c08766b943cf4.framework.js.br",
+            "bytes": 79020
+        },
+        {
+            "path": "Build/a85d85ca488fe91ed1f478ed37bd39e2.loader.js",
+            "bytes": 26982
+        },
+        {
+            "path": "Build/bfbf2f337ba2300ff1c50b0cd5417c40.wasm.br",
+            "bytes": 8834091
+        },
+        {
+            "path": "Build/c35cd7712c3772e70bdf0d80e06e4f48.data.br",
+            "bytes": 10962604
+        },
+        {
+            "path": "StreamingAssets/Database/ChungCuM5.db",
+            "bytes": 57344
+        },
+        {
+            "path": "TemplateData/webmemd-icon.png",
+            "bytes": 1670
+        },
+        {
+            "path": "index.html",
+            "bytes": 1979
+        }
+    ]
+}

@@ -1,0 +1,57 @@
+{
+    "generatedUtc": "2026-08-15T06:05:11.9680785Z",
+    "unityVersion": "6000.3.17f1",
+    "scene": "Assets/Scenes/AltScene_Optimized.unity",
+    "outputPath": "Builds/WebGL/DiskSizeLto-DXT-High-Sky2048",
+    "buildKind": "DiskSizeLto",
+    "qualityVariant": "High",
+    "textureSubtarget": "DXT",
+    "wasmCodeOptimization": "DiskSizeLTO",
+    "il2CppCodeGeneration": "OptimizeSize",
+    "result": "Succeeded",
+    "development": false,
+    "autoConnectProfiler": false,
+    "brotli": true,
+    "decompressionFallback": false,
+    "dataCaching": true,
+    "hashedFileNames": true,
+    "skyMaxSize": 2048,
+    "buildSeconds": 689.2170517,
+    "reportedTotalBytes": 16698590,
+    "errors": 0,
+    "warnings": 0,
+    "files": [
+        {
+            "path": "Build/2774bbdf11c095ef0bdd5cbb5ebee876.framework.js.br",
+            "bytes": 76262
+        },
+        {
+            "path": "Build/5f104e4e0242d985ee1c59fabf3b7b84.wasm.br",
+            "bytes": 5815857
+        },
+        {
+            "path": "Build/77235b340326cc33bb07596d7f9a6650.data.br",
+            "bytes": 10718496
+        },
+        {
+            "path": "Build/cacd772b6252d453e80f6caf014385e1.loader.js",
+            "bytes": 26982
+        },
+        {
+            "path": "StreamingAssets/Database/ChungCuM5.db",
+            "bytes": 57344
+        },
+        {
+            "path": "TemplateData/webmemd-icon.png",
+            "bytes": 1670
+        },
+        {
+            "path": "index.html",
+            "bytes": 1979
+        },
+        {
+            "path": "webgl-build-manifest.json",
+            "bytes": 1517
+        }
+    ]
+}

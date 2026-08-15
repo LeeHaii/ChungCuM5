@@ -1,16 +1,17 @@
-using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
-using System.IO;
 
 public class FamilyDataViewController : MonoBehaviour
 {
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+
     [Header("UI References")]
     [Tooltip("The parent transform containing EntryElementGD items")]
     public Transform panelThongTinHoContent;
-    
+
     [Tooltip("The prefab for a single resident entry (EntryElementGD)")]
     public GameObject entryElementGDPrefab;
 
@@ -18,143 +19,146 @@ public class FamilyDataViewController : MonoBehaviour
     public GameObject panelThongTinHo;
 
     [Header("Highlight Settings")]
-    [Tooltip("YellowTransparent material from the Materials folder")]
+    [Tooltip("YellowTransparent material used as the source for the unit highlight color")]
     public Material yellowTransparentMaterial;
 
     [SerializeField] private Button buttonCollapse;
 
-    private Database.IQuanLyService _quanLyService;
-    
-    // Store original materials to reset highlighting
-    private Dictionary<GameObject, Material[]> _originalMaterials = new Dictionary<GameObject, Material[]>();
-    private GameObject _currentlyHighlightedUnit = null;
+    private readonly List<ResidentRowView> residentRows = new List<ResidentRowView>(8);
+    private readonly Dictionary<string, Renderer> unitRenderers =
+        new Dictionary<string, Renderer>(224, System.StringComparer.Ordinal);
+
+    private MaterialPropertyBlock originalUnitBlock;
+    private MaterialPropertyBlock highlightUnitBlock;
+    private Database.IQuanLyService quanLyService;
+    private Renderer currentlyHighlightedRenderer;
 
     private void Awake()
     {
+        originalUnitBlock = new MaterialPropertyBlock();
+        highlightUnitBlock = new MaterialPropertyBlock();
         string dbPath = Path.Combine(Application.streamingAssetsPath, "Database", "ChungCuM5.db");
-        _quanLyService = new Database.SqliteQuanLyService(dbPath);
+        quanLyService = new Database.SqliteQuanLyService(dbPath);
+        CacheUnitRenderers();
     }
 
     private void Start()
     {
-        if(panelThongTinHo != null) panelThongTinHo.SetActive(false);
-        if(buttonCollapse != null) buttonCollapse.onClick.AddListener(() => {panelThongTinHo.SetActive(false);});
+        if (panelThongTinHo != null) panelThongTinHo.SetActive(false);
+        if (entryElementGDPrefab != null) entryElementGDPrefab.SetActive(false);
+        if (buttonCollapse != null) buttonCollapse.onClick.AddListener(Collapse);
     }
 
-    /// <summary>
-    /// Call this method from the ButtonViewData onClick event, passing the MaCanHo string.
-    /// </summary>
+    private void OnDestroy()
+    {
+        if (buttonCollapse != null) buttonCollapse.onClick.RemoveListener(Collapse);
+        RestoreHighlightedUnit();
+    }
+
     public void OnViewFamilyData(string maCanHo)
     {
-        if (panelThongTinHo != null)
-            panelThongTinHo.SetActive(true);
-
+        if (panelThongTinHo != null) panelThongTinHo.SetActive(true);
         LoadResidents(maCanHo);
         HighlightUnit(maCanHo);
     }
 
-    private void LoadResidents(string maCanHo)
+    private void Collapse()
     {
-        if (_quanLyService == null) return;
-
-        _quanLyService.GetCuDanTheoCanHo(maCanHo,
-            onSuccess: (listCuDan) => {
-                PopulateResidents(listCuDan);
-            },
-            onError: (err) => {
-                Debug.LogError("Error loading residents for " + maCanHo + ": " + err);
-            });
+        if (panelThongTinHo != null) panelThongTinHo.SetActive(false);
+        RestoreHighlightedUnit();
     }
 
-    private void PopulateResidents(List<Database.CuDan> listCuDan)
+    private void LoadResidents(string maCanHo)
+    {
+        if (quanLyService == null) return;
+
+        quanLyService.GetCuDanTheoCanHo(
+            maCanHo,
+            PopulateResidents,
+            err => Debug.LogError("Error loading residents for " + maCanHo + ": " + err));
+    }
+
+    private void PopulateResidents(List<Database.CuDan> residents)
     {
         if (entryElementGDPrefab == null || panelThongTinHoContent == null) return;
 
-        // Clear existing children except the template/header
-        foreach (Transform child in panelThongTinHoContent)
+        int requiredCount = residents?.Count ?? 0;
+        for (int i = residentRows.Count; i < requiredCount; i++)
         {
-            if (child.gameObject != entryElementGDPrefab && child.name != "Header")
-            {
-                Destroy(child.gameObject);
-            }
+            GameObject instance = Instantiate(entryElementGDPrefab, panelThongTinHoContent);
+            ResidentRowView row = instance.GetComponent<ResidentRowView>();
+            if (row == null) row = instance.AddComponent<ResidentRowView>();
+            residentRows.Add(row);
         }
 
-        entryElementGDPrefab.SetActive(false);
-
-        foreach (var cuDan in listCuDan)
+        for (int i = 0; i < residentRows.Count; i++)
         {
-            GameObject newEntry = Instantiate(entryElementGDPrefab, panelThongTinHoContent);
-            newEntry.SetActive(true);
+            bool active = i < requiredCount;
+            ResidentRowView row = residentRows[i];
+            if (active) row.Bind(residents[i]);
+            row.gameObject.SetActive(active);
+        }
+    }
 
-            SetText(newEntry, "HoTen", cuDan.HoTen);
-            SetText(newEntry, "SoCCCD", cuDan.SoCCCD);
-            SetText(newEntry, "NgaySinh", cuDan.NgaySinh);
-            SetText(newEntry, "SDT", cuDan.SDT);
-            SetText(newEntry, "Email", cuDan.Email);
-            SetText(newEntry, "GioiTinh", cuDan.GioiTinh);
-            SetText(newEntry, "QuanHeVoiChuHo", cuDan.QuanHeVoiChuHo);
-            SetText(newEntry, "LoaiCuTru", cuDan.LoaiCuTru);
-            SetText(newEntry, "TrangThai", cuDan.TrangThai);
+    private void CacheUnitRenderers()
+    {
+        Renderer[] renderers = FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer != null
+                && renderer.CompareTag("Unit")
+                && !unitRenderers.ContainsKey(renderer.gameObject.name))
+            {
+                unitRenderers.Add(renderer.gameObject.name, renderer);
+            }
         }
     }
 
     private void HighlightUnit(string maCanHo)
     {
-        // Revert previous highlight
-        if (_currentlyHighlightedUnit != null && _originalMaterials.ContainsKey(_currentlyHighlightedUnit))
-        {
-            var prevRenderer = _currentlyHighlightedUnit.GetComponent<Renderer>();
-            if (prevRenderer != null)
-            {
-                prevRenderer.materials = _originalMaterials[_currentlyHighlightedUnit];
-            }
-            _currentlyHighlightedUnit = null;
-        }
+        RestoreHighlightedUnit();
 
-        // Find the GameObject matching MaCanHo. 
-        GameObject targetUnit = GameObject.Find(maCanHo);
-        
-        if (targetUnit == null)
+        if (string.IsNullOrEmpty(maCanHo)
+            || !unitRenderers.TryGetValue(maCanHo, out Renderer renderer)
+            || renderer == null)
         {
-            Debug.LogWarning($"GameObject with name '{maCanHo}' not found in the scene.");
+            Debug.LogWarning("Unit renderer '" + maCanHo + "' was not found in the scene.", this);
             return;
         }
 
-        _currentlyHighlightedUnit = targetUnit;
-        var renderer = targetUnit.GetComponent<Renderer>();
-
-        if (renderer != null && yellowTransparentMaterial != null)
+        if (yellowTransparentMaterial == null)
         {
-            // Save original materials
-            if (!_originalMaterials.ContainsKey(targetUnit))
-            {
-                _originalMaterials[targetUnit] = renderer.materials;
-            }
+            Debug.LogWarning("YellowTransparent material is not assigned.", this);
+            return;
+        }
 
-            // Apply YellowTransparent material to all material slots
-            Material[] newMaterials = new Material[renderer.materials.Length];
-            for (int i = 0; i < newMaterials.Length; i++)
-            {
-                newMaterials[i] = yellowTransparentMaterial;
-            }
-            renderer.materials = newMaterials;
-        }
-        else
+        currentlyHighlightedRenderer = renderer;
+        renderer.GetPropertyBlock(originalUnitBlock);
+        renderer.GetPropertyBlock(highlightUnitBlock);
+
+        Material targetMaterial = renderer.sharedMaterial;
+        if (targetMaterial != null && targetMaterial.HasProperty(BaseColorId))
         {
-            Debug.LogWarning($"Target unit '{maCanHo}' has no Renderer or YellowTransparent material is not assigned.");
+            Color highlightColor = yellowTransparentMaterial.HasProperty(BaseColorId)
+                ? yellowTransparentMaterial.GetColor(BaseColorId)
+                : yellowTransparentMaterial.color;
+            highlightUnitBlock.SetColor(BaseColorId, highlightColor);
         }
+        else if (targetMaterial != null && targetMaterial.HasProperty(ColorId))
+        {
+            highlightUnitBlock.SetColor(ColorId, yellowTransparentMaterial.color);
+        }
+
+        renderer.SetPropertyBlock(highlightUnitBlock);
     }
 
-    private void SetText(GameObject entry, string childName, string value)
+    private void RestoreHighlightedUnit()
     {
-        Transform child = entry.transform.Find(childName);
-        if (child != null)
-        {
-            var textComp = child.GetComponent<TextMeshProUGUI>();
-            if (textComp != null)
-            {
-                textComp.text = string.IsNullOrEmpty(value) ? "-" : value;
-            }
-        }
+        if (currentlyHighlightedRenderer == null) return;
+        currentlyHighlightedRenderer.SetPropertyBlock(originalUnitBlock);
+        currentlyHighlightedRenderer = null;
+        originalUnitBlock.Clear();
+        highlightUnitBlock.Clear();
     }
 }
