@@ -1,9 +1,12 @@
 using UnityEngine;
+#if !UNITY_WEBGL
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
+#endif
 
 public class ApartmentLoader : MonoBehaviour
 {
+#if !UNITY_WEBGL
     void Start()
     {
         string addressableStr = PlayerPrefs.GetString("SelectedApartment", "");
@@ -31,4 +34,12 @@ public class ApartmentLoader : MonoBehaviour
             }
         };
     }
+#else
+    private void Start()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        Debug.LogWarning("Apartment addressable loading is disabled in the Web player.", this);
+#endif
+    }
+#endif
 }

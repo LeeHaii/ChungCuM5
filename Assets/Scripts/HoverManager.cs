@@ -1,3 +1,4 @@
+using BimRuntime;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -20,6 +21,7 @@ public class HoverManager : MonoBehaviour
     public BimDataProperties bimDataProperties;
 
     private Transform currentHoveredObject;
+    private int currentHoveredElementIndex = -1;
     private Renderer currentRenderer;
     private HighlightType currentHighlightType = HighlightType.None;
 
@@ -96,28 +98,26 @@ public class HoverManager : MonoBehaviour
         if (hitFound)
         {
             Transform hitTransform = hit.transform;
+            BimMetadataStore store = BimMetadataStore.Instance;
+            bool isUnit = hitTransform.CompareTag(targetTag);
+            BimMetadataElement element = default;
+            bool hasMetadata = store != null && store.TryGetElement(hit, out element);
+            Transform highlightTarget = hasMetadata ? element.Target : hitTransform;
+            int elementIndex = hasMetadata ? element.ElementIndex : -1;
 
-            if (hitTransform != currentHoveredObject)
+            if (highlightTarget != currentHoveredObject || elementIndex != currentHoveredElementIndex)
             {
                 RemoveHighlight();
 
-                if (hitTransform.CompareTag(targetTag))
+                if (isUnit)
                 {
-                    ApplyDarken(hitTransform);
+                    ApplyDarken(hitTransform, hitTransform.GetComponent<Renderer>(), -1);
                 }
-                else
+                else if (hasMetadata && bimDataProperties != null && bimDataProperties.GetBIMdata())
                 {
-                    bool hasMetadata = hitTransform.TryGetComponent<Pixyz.ImportSDK.Metadata>(out _);
-
-                    if (!hasMetadata && hitTransform.parent != null)
-                    {
-                        hasMetadata = hitTransform.parent.TryGetComponent<Pixyz.ImportSDK.Metadata>(out _);
-                    }
-
-                    if (hasMetadata && bimDataProperties != null && bimDataProperties.GetBIMdata())
-                    {
-                        ApplyDarken(hitTransform);
-                    }
+                    Renderer targetRenderer = highlightTarget.GetComponent<Renderer>();
+                    if (targetRenderer == null) targetRenderer = hitTransform.GetComponent<Renderer>();
+                    ApplyDarken(highlightTarget, targetRenderer, elementIndex);
                 }
             }
         }
@@ -151,10 +151,11 @@ public class HoverManager : MonoBehaviour
             && (screenPosition - lastPointerPosition).sqrMagnitude <= 0.01f;
     }
 
-    private void ApplyDarken(Transform obj)
+    private void ApplyDarken(Transform obj, Renderer targetRenderer, int elementIndex)
     {
         currentHoveredObject = obj;
-        currentRenderer = obj.GetComponent<Renderer>();
+        currentHoveredElementIndex = elementIndex;
+        currentRenderer = targetRenderer;
 
         if (currentRenderer != null)
         {
@@ -201,6 +202,7 @@ public class HoverManager : MonoBehaviour
         }
 
         currentHoveredObject = null;
+        currentHoveredElementIndex = -1;
         currentRenderer = null;
         currentHighlightType = HighlightType.None;
     }

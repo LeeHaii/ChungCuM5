@@ -27,13 +27,14 @@ public class AppModeController : MonoBehaviour
             var go = GameObject.Find("ButtonUnitSearch");
             if (go) buttonUnitSearch = go.GetComponent<Button>();
         }
-        if (bimDataProperties == null) bimDataProperties = FindObjectOfType<BimDataProperties>(true);
+        if (bimDataProperties == null)
+            bimDataProperties = FindFirstObjectByType<BimDataProperties>(FindObjectsInactive.Include);
         if (ApartmentInfoPanel == null) ApartmentInfoPanel = GameObject.Find("ApartmentInfoPanel");
         if (BimDataPanel == null) BimDataPanel = GameObject.Find("PanelBimINFO");
 
-        ApartmentInfoPanel.SetActive(false);
-        BimDataPanel.SetActive(false);
-        floor.SetActive(false);
+        if (ApartmentInfoPanel != null) ApartmentInfoPanel.SetActive(false);
+        if (BimDataPanel != null) BimDataPanel.SetActive(false);
+        if (floor != null) floor.SetActive(false);
 
         #region AttachButtons
         if (buttonBim != null)
@@ -72,7 +73,9 @@ public class AppModeController : MonoBehaviour
         }
         if (bimDataProperties) bimDataProperties.EnableBIMData();
         ExitUnitSearchMode();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         Debug.Log("[Mode] Switched to BIM Mode");
+#endif
     }
 
     private void SetUnitSearchMode()
@@ -82,7 +85,9 @@ public class AppModeController : MonoBehaviour
             floor.SetActive(true);
         }
         ExitBimMode();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         Debug.Log("[Mode] Switched to Unit Search Mode");
+#endif
     }
 
     private void ExitBimMode()

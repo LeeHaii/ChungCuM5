@@ -3,93 +3,148 @@ using UnityEngine;
 
 public class CameraWallFader : MonoBehaviour
 {
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+
+    private sealed class WallState
+    {
+        public Renderer Renderer;
+        public Transform Transform;
+        public int ColorPropertyId;
+        public Color BaseColor;
+        public float LastAlpha = float.NaN;
+        public bool LastDarkened;
+    }
+
     [Header("Fade Settings")]
     public string wallTag = "Wall";
-    
+
     [Tooltip("Distance where the wall becomes completely invisible (0% opacity).")]
-    public float fullTransparentDistance = 3.0f; 
-    
+    public float fullTransparentDistance = 3f;
+
     [Tooltip("Distance where the wall becomes completely solid (100% opacity).")]
-    public float fullSolidDistance = 8.0f;       
+    public float fullSolidDistance = 8f;
 
-    // A list to keep track of all our wall renderers
-    private List<Renderer> wallRenderers = new List<Renderer>();
-    
-    // Our secret weapon for changing colors without memory leaks
+    [SerializeField, Min(0f)] private float movementEpsilon = 0.001f;
+    [SerializeField, Min(0f)] private float alphaEpsilon = 0.001f;
+
+    private readonly List<WallState> walls = new List<WallState>(128);
     private MaterialPropertyBlock propertyBlock;
+    private Vector3 lastCameraPosition;
+    private Renderer lastHoveredRenderer;
+    private bool hasCameraPosition;
 
-    void Start()
+    private void Start()
     {
         propertyBlock = new MaterialPropertyBlock();
+        GameObject[] wallObjects = GameObject.FindGameObjectsWithTag(wallTag);
+        walls.Capacity = Mathf.Max(walls.Capacity, wallObjects.Length);
 
-        // 1. Find every object in the game tagged "Wall" when the game starts
-        GameObject[] walls = GameObject.FindGameObjectsWithTag(wallTag);
-        
-        foreach (GameObject wall in walls)
+        for (int i = 0; i < wallObjects.Length; i++)
         {
-            Renderer rend = wall.GetComponent<Renderer>();
-            if (rend != null)
+            Renderer renderer = wallObjects[i].GetComponent<Renderer>();
+            Material material = renderer != null ? renderer.sharedMaterial : null;
+            if (renderer == null || material == null) continue;
+
+            int propertyId;
+            Color baseColor;
+            if (material.HasProperty(BaseColorId))
             {
-                wallRenderers.Add(rend); // Save them to our list
+                propertyId = BaseColorId;
+                baseColor = material.GetColor(BaseColorId);
             }
+            else if (material.HasProperty(ColorId))
+            {
+                propertyId = ColorId;
+                baseColor = material.GetColor(ColorId);
+            }
+            else
+            {
+                continue;
+            }
+
+            walls.Add(new WallState
+            {
+                Renderer = renderer,
+                Transform = renderer.transform,
+                ColorPropertyId = propertyId,
+                BaseColor = baseColor
+            });
         }
     }
 
-    void LateUpdate()
+    private void LateUpdate()
     {
-        // 2. Look at where the camera currently is
         Vector3 cameraPosition = transform.position;
+        Renderer hoveredRenderer = HoverManager.Instance != null
+            ? HoverManager.Instance.CurrentHoveredRenderer
+            : null;
 
-        // 3. Check the distance to every single wall in our list
-        foreach (Renderer rend in wallRenderers)
+        float movementEpsilonSqr = movementEpsilon * movementEpsilon;
+        bool cameraMoved = !hasCameraPosition
+            || (cameraPosition - lastCameraPosition).sqrMagnitude > movementEpsilonSqr;
+        bool hoverChanged = hoveredRenderer != lastHoveredRenderer;
+        if (!cameraMoved && !hoverChanged) return;
+
+        lastCameraPosition = cameraPosition;
+        lastHoveredRenderer = hoveredRenderer;
+        hasCameraPosition = true;
+
+        float transparentDistance = Mathf.Min(fullTransparentDistance, fullSolidDistance);
+        float solidDistance = Mathf.Max(fullTransparentDistance, fullSolidDistance);
+        float transparentDistanceSqr = transparentDistance * transparentDistance;
+        float solidDistanceSqr = solidDistance * solidDistance;
+
+        for (int i = 0; i < walls.Count; i++)
         {
-            if (rend == null) continue;
+            WallState wall = walls[i];
+            if (wall.Renderer == null || wall.Transform == null) continue;
 
-            float distance = Vector3.Distance(cameraPosition, rend.transform.position);
-
-            // 4. Calculate the Fade (Alpha)
-            // Mathf.InverseLerp takes our distance and turns it into a smooth percentage between 0.0 and 1.0.
-            float targetAlpha = Mathf.InverseLerp(fullTransparentDistance, fullSolidDistance, distance);
-
-            // 5. Apply the new transparency to the property block
-            rend.GetPropertyBlock(propertyBlock);
-
-            Color currentColor = Color.white;
-            
-            // Check for URP vs Built-in pipelines just like our Hover script
-            if (rend.sharedMaterial.HasProperty("_BaseColor"))
+            float distanceSqr = (cameraPosition - wall.Transform.position).sqrMagnitude;
+            float targetAlpha;
+            if (distanceSqr <= transparentDistanceSqr)
             {
-                currentColor = rend.sharedMaterial.GetColor("_BaseColor");
-                
-                if (HoverManager.Instance != null && HoverManager.Instance.CurrentHoveredRenderer == rend)
-                {
-                    float darken = HoverManager.Instance.DarkenMultiplier;
-                    currentColor = new Color(currentColor.r * darken, currentColor.g * darken, currentColor.b * darken, currentColor.a);
-                }
-
-                currentColor.a = targetAlpha; // 'a' stands for Alpha (transparency)
-                propertyBlock.SetColor("_BaseColor", currentColor);
+                targetAlpha = 0f;
             }
-            else if (rend.sharedMaterial.HasProperty("_Color"))
+            else if (distanceSqr >= solidDistanceSqr)
             {
-                currentColor = rend.sharedMaterial.color;
-
-                if (HoverManager.Instance != null && HoverManager.Instance.CurrentHoveredRenderer == rend)
-                {
-                    float darken = HoverManager.Instance.DarkenMultiplier;
-                    currentColor = new Color(currentColor.r * darken, currentColor.g * darken, currentColor.b * darken, currentColor.a);
-                }
-
-                currentColor.a = targetAlpha;
-                propertyBlock.SetColor("_Color", currentColor);
+                targetAlpha = 1f;
+            }
+            else
+            {
+                targetAlpha = Mathf.InverseLerp(
+                    transparentDistance,
+                    solidDistance,
+                    Mathf.Sqrt(distanceSqr));
             }
 
-            // Apply the block back to the wall
-            rend.SetPropertyBlock(propertyBlock);
+            bool darkened = hoveredRenderer == wall.Renderer;
+            if (!float.IsNaN(wall.LastAlpha)
+                && Mathf.Abs(wall.LastAlpha - targetAlpha) <= alphaEpsilon
+                && wall.LastDarkened == darkened)
+            {
+                continue;
+            }
+
+            wall.Renderer.GetPropertyBlock(propertyBlock);
+            Color color = wall.BaseColor;
+            if (darkened && HoverManager.Instance != null)
+            {
+                float multiplier = HoverManager.Instance.DarkenMultiplier;
+                color.r *= multiplier;
+                color.g *= multiplier;
+                color.b *= multiplier;
+            }
+
+            color.a = targetAlpha;
+            propertyBlock.SetColor(wall.ColorPropertyId, color);
+            wall.Renderer.SetPropertyBlock(propertyBlock);
+            wall.LastAlpha = targetAlpha;
+            wall.LastDarkened = darkened;
         }
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
         ResetWalls();
     }
@@ -98,28 +153,21 @@ public class CameraWallFader : MonoBehaviour
     {
         if (propertyBlock == null) propertyBlock = new MaterialPropertyBlock();
 
-        foreach (Renderer rend in wallRenderers)
+        for (int i = 0; i < walls.Count; i++)
         {
-            if (rend == null) continue;
+            WallState wall = walls[i];
+            if (wall.Renderer == null) continue;
 
-            rend.GetPropertyBlock(propertyBlock);
-
-            Color currentColor = Color.white;
-            
-            if (rend.sharedMaterial.HasProperty("_BaseColor"))
-            {
-                currentColor = rend.sharedMaterial.GetColor("_BaseColor");
-                currentColor.a = 1.0f;
-                propertyBlock.SetColor("_BaseColor", currentColor);
-            }
-            else if (rend.sharedMaterial.HasProperty("_Color"))
-            {
-                currentColor = rend.sharedMaterial.color;
-                currentColor.a = 1.0f;
-                propertyBlock.SetColor("_Color", currentColor);
-            }
-
-            rend.SetPropertyBlock(propertyBlock);
+            wall.Renderer.GetPropertyBlock(propertyBlock);
+            Color color = wall.BaseColor;
+            color.a = 1f;
+            propertyBlock.SetColor(wall.ColorPropertyId, color);
+            wall.Renderer.SetPropertyBlock(propertyBlock);
+            wall.LastAlpha = float.NaN;
+            wall.LastDarkened = false;
         }
+
+        hasCameraPosition = false;
+        lastHoveredRenderer = null;
     }
 }
