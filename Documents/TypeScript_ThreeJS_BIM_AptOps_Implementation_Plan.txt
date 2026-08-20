@@ -1,0 +1,1448 @@
+REUSABLE MULTI-BUILDING BIM OPERATIONS PLATFORM
+ARCHITECTURE AND IMPLEMENTATION PLAN
+
+Technology: TypeScript, Three.js, That Open Components, Fragments, web-ifc
+Repository style: modular monorepo with separate frontend, backend, and database
+Prepared: 2026-08-20
+Document status: implementation-ready, model-agnostic plan
+
+===============================================================================
+1. PURPOSE
+===============================================================================
+
+Build a reusable web platform for viewing IFC-based buildings and connecting BIM
+geometry to operational building data. The platform must support many buildings,
+many IFC files, and many model versions without creating a new application or
+changing source code for each building.
+
+The existing Unity project is only a reference for useful product behavior. It is
+not the architecture to reproduce. The reusable features are:
+
+- Interactive 3D building navigation.
+- BIM element hover, selection, properties, isolation, and visibility.
+- Storey/spatial navigation.
+- Search and selection of apartments or other managed spaces.
+- Display of related operational records, such as occupants/residents.
+- Clear application modes and responsive panels.
+- Efficient loading of large IFC models.
+- Secure separation between public model assets and private operational data.
+
+The platform must make this workflow normal:
+
+1. An administrator adds a building record.
+2. A new IFC file is submitted to the model pipeline.
+3. The pipeline validates and converts it to Fragments.
+4. Building-specific configuration and unit-to-model bindings are validated.
+5. A model version is published and activated.
+6. The unchanged frontend and backend immediately serve the new building.
+
+The central acceptance criterion is:
+
+ONBOARDING A NEW BUILDING MUST REQUIRE DATA, CONFIGURATION, AND MODEL PROCESSING;
+IT MUST NOT REQUIRE EDITING OR REBUILDING FEATURE CODE.
+
+===============================================================================
+2. SCOPE
+===============================================================================
+
+2.1 Core platform features
+--------------------------
+
+The first stable platform release must provide:
+
+- Authenticated building catalog and building selection.
+- One active building session at a time in the browser.
+- Versioned BIM model loading from preconverted .frag assets.
+- Optional context layers such as site GLB files.
+- Orbit, pan, zoom, fit, reset, and touch navigation.
+- BIM hover and persistent selection.
+- Element identity and property inspection.
+- Storey/class/type visibility and element isolation.
+- Managed-space/unit search and selection.
+- Geometry-to-unit and unit-to-geometry mapping.
+- Related occupant/resident display subject to authorization.
+- Loading, progress, cancellation, retry, empty, and error states.
+- Responsive and keyboard-accessible UI.
+- Model-version activation and rollback.
+- Logging, audit, metrics, automated tests, and deployment controls.
+
+2.2 Optional modules
+--------------------
+
+These should use the same extension boundaries but are not required in the first
+platform release:
+
+- Measurement and clipping planes.
+- Saved viewpoints and deep links.
+- Issues, annotations, and collaboration.
+- First-person navigation.
+- Interior-model streaming.
+- Maintenance/work-order integration.
+- Sensors and real-time telemetry.
+- Document attachment and asset-management integrations.
+
+2.3 Explicit non-goals
+----------------------
+
+- Do not reproduce the Unity GameObject hierarchy in Three.js.
+- Do not create a custom application per IFC file or building.
+- Do not hardcode floor counts, apartment counts, IFC classes, property names,
+  camera coordinates, model URLs, or database row IDs in feature code.
+- Do not expose That Open, Fragments, Three.js, HTTP, or SQL types to domain logic.
+- Do not load and parse the full IFC in every normal browser session.
+- Do not include private occupant data in static frontend files.
+- Do not use object names, array position, or scene traversal order as stable IDs.
+
+===============================================================================
+3. REUSE AND MODULARITY RULES
+===============================================================================
+
+3.1 What changes per building
+-----------------------------
+
+The following are data/configuration, never application code:
+
+- Building name, site, timezone, locale, branding, and permissions.
+- Active model and historical model versions.
+- IFC file, schema, units, origin, transform, and georeference.
+- Default camera views and optional context layers.
+- Enabled features.
+- IFC import/property profile.
+- Storey labels and aliases.
+- Unit/space identifiers and their BIM bindings.
+- Operational rows such as units, people, and occupancies.
+
+3.2 What remains shared
+-----------------------
+
+The following are reusable platform behavior:
+
+- Model session lifecycle.
+- Camera/navigation behavior.
+- Selection and highlighting.
+- BIM queries and property presentation.
+- Spatial tree and visibility behavior.
+- Unit search and geometry mapping.
+- Authorization enforcement.
+- API conventions and error handling.
+- Database schema and migrations.
+- Model conversion, validation, publication, and rollback.
+- Performance budgets, telemetry, testing, and deployment.
+
+3.3 Stable identity rules
+-------------------------
+
+Use explicit typed identifiers:
+
+- OrganizationId: optional ownership/tenant boundary.
+- SiteId: a group of buildings.
+- BuildingId: permanent business identity of a building.
+- ModelId: a logical BIM model belonging to a building.
+- ModelVersionId: one immutable converted version.
+- ElementRef: { modelVersionId, localId, globalId? }.
+- IfcGlobalId: source-stable IFC element identity when available.
+- UnitId: permanent business identity of a managed unit/space.
+- PersonId and OccupancyId: private operational identities.
+
+The model-local element ID may change after reconversion. Cross-version mapping
+must use IFC GlobalId or an explicit reconciliation table. UnitId must never be
+derived from a display name at runtime.
+
+3.4 Dependency direction
+------------------------
+
+Frontend:
+
+UI components
+  -> feature controllers/use cases
+    -> domain interfaces (ports)
+      -> HTTP and That Open adapters
+
+Backend:
+
+HTTP controllers
+  -> application services/use cases
+    -> domain rules and repository interfaces
+      -> PostgreSQL/object-storage/auth adapters
+
+Model pipeline:
+
+pipeline commands
+  -> conversion/validation services
+    -> Fragments/web-ifc and storage adapters
+
+Dependencies must point inward. Domain modules never import infrastructure.
+
+3.5 Public module boundary
+--------------------------
+
+Every module has one public index.ts. Other modules may import only from that file.
+Internal controllers, helper functions, repository implementations, and library
+objects are private. Enforce this with lint/import-boundary tests.
+
+Avoid a generic utils folder. A function belongs to the module whose vocabulary it
+uses. Truly generic code must be small, independently tested, and placed in a named
+package such as shared/result or shared/pagination.
+
+===============================================================================
+4. REPOSITORY STRUCTURE
+===============================================================================
+
+Use one monorepo for coordinated contracts and atomic changes, while keeping the
+runtime applications and database artifacts clearly separated.
+
+repository-root/
+  frontend/
+    package.json
+    tsconfig.json
+    vite.config.ts
+    public/
+      workers/fragments-worker.mjs
+      wasm/web-ifc.wasm
+    src/
+      main.ts
+      app/
+        bootstrap.ts
+        app-store.ts
+        app-state.ts
+        app-routes.ts
+        app-config.ts
+      modules/
+        auth/
+        building-catalog/
+        model-session/
+        viewer/
+        bim-inspection/
+        spatial-tree/
+        units/
+        occupants/
+        navigation/
+      infrastructure/
+        api/
+        thatopen/
+        storage/
+        telemetry/
+      ui/
+        components/
+        layouts/
+        styles/
+        localization/
+      tests/
+
+  backend/
+    package.json
+    tsconfig.json
+    src/
+      main.ts
+      bootstrap/
+        create-server.ts
+        container.ts
+        config.ts
+      modules/
+        auth/
+        buildings/
+        models/
+        units/
+        occupants/
+        authorization/
+        audit/
+        assets/
+      infrastructure/
+        database/
+        object-storage/
+        identity-provider/
+        logging/
+      middleware/
+      tests/
+
+  database/
+    README.md
+    migrations/
+    schema/
+    views/
+    functions/
+    seeds/synthetic/
+    scripts/
+      migrate.ts
+      verify.ts
+      import-legacy.ts
+      reset-development.ts
+    tests/
+
+  model-pipeline/
+    package.json
+    tsconfig.json
+    src/
+      cli.ts
+      commands/
+        inspect-ifc.ts
+        convert-model.ts
+        validate-model.ts
+        publish-model.ts
+        rollback-model.ts
+      services/
+        ifc-inspection-service.ts
+        fragment-conversion-service.ts
+        property-profile-service.ts
+        unit-binding-service.ts
+        manifest-service.ts
+        publication-service.ts
+      adapters/
+        fragments/
+        web-ifc/
+        object-storage/
+        backend-admin-api/
+      schemas/
+      tests/fixtures/
+
+  shared/
+    package.json
+    tsconfig.json
+    src/
+      domain/
+      contracts/
+      schemas/
+      errors/
+      result/
+      pagination/
+    tests/
+
+  infrastructure/
+    local/
+    containers/
+    deployment/
+    cdn/
+    monitoring/
+
+  docs/
+    architecture/
+    adr/
+    api/
+    data-dictionary/
+    model-onboarding/
+    runbooks/
+
+  package.json
+  pnpm-workspace.yaml
+  tsconfig.base.json
+  eslint.config.js
+  .nvmrc
+
+Folder ownership rules:
+
+- frontend contains browser code only.
+- backend contains server application code only.
+- database owns SQL schema, migrations, views, seed data, and database verification.
+- model-pipeline owns IFC inspection/conversion/publication.
+- shared contains environment-neutral domain types and validated transport schemas.
+- infrastructure contains deployment configuration, not business logic.
+- Real resident data is never committed; database seeds are synthetic.
+
+Each of frontend, backend, database, and model-pipeline has its own README,
+commands, tests, configuration schema, and CI job. A workspace may depend on the
+public shared package, never on another workspace's internal source.
+
+===============================================================================
+5. FRONTEND ARCHITECTURE
+===============================================================================
+
+5.1 Responsibility
+------------------
+
+The frontend owns presentation and user interaction. It requests data and model
+assets but does not decide authorization, manipulate database rows, or convert
+production IFC files.
+
+Use TypeScript strict mode and Vite. The feature/service architecture is independent
+of UI framework. Plain Web Components are sufficient; React or Vue may later
+replace only presentation without changing domain services or viewer adapters.
+
+5.2 Application state
+---------------------
+
+Use one typed store with a pure reducer:
+
+interface AppState {
+  session: { status: 'unknown' | 'anonymous' | 'authenticated' | 'expired' };
+  building: { selectedId?: BuildingId; status: LoadStatus };
+  model: { activeVersionId?: ModelVersionId; status: LoadStatus; progress?: number };
+  mode: 'overview' | 'bim' | 'units';
+  selection: { element?: ElementRef; unitId?: UnitId };
+  visibility: { hiddenGroups: readonly string[]; contextVisible: boolean };
+  panel: 'none' | 'properties' | 'spatialTree' | 'units' | 'occupants';
+  error?: AppError;
+}
+
+The store owns durable application state. High-frequency camera matrices and raw
+pointer positions stay inside ViewerService and do not cause UI-wide updates.
+
+Required commands include SELECT_BUILDING, BUILDING_SESSION_READY,
+MODEL_LOAD_STARTED/PROGRESS/COMPLETED, ENTER_MODE, SELECT_ELEMENT, SELECT_UNIT,
+CLEAR_SELECTION, SET_GROUP_VISIBILITY, RESET_VIEW, and SESSION_EXPIRED.
+
+5.3 Frontend services and functions
+-----------------------------------
+
+AppCoordinator
+Responsibility: building-session start, switch, and teardown.
+
+- start(): Promise<void>
+- openBuilding(buildingId, signal): Promise<void>
+- closeBuilding(): Promise<void>
+- dispose(): Promise<void>
+
+AuthService
+Responsibility: browser authentication session and token integration.
+
+- initialize(signal): Promise<AuthSession>
+- getAccessToken(signal): Promise<string>
+- signOut(): Promise<void>
+
+BuildingCatalogService
+Responsibility: accessible buildings and their active configuration.
+
+- listBuildings(query, signal): Promise<Page<BuildingSummary>>
+- getBuilding(buildingId, signal): Promise<BuildingDetail>
+- getActiveModelManifest(buildingId, signal): Promise<ModelManifest>
+
+ModelSessionService
+Responsibility: atomically load/unload all layers for one building.
+
+- open(manifest, signal, onProgress): Promise<ModelSession>
+- close(): Promise<void>
+- getCurrent(): Readonly<ModelSession> | undefined
+
+ViewerService (implements ViewerPort)
+Responsibility: Three.js, Components, Fragments, camera, picking, and resources.
+
+- initialize(container, options): Promise<void>
+- loadFragmentLayer(layer, bytes, signal): Promise<ModelLayerHandle>
+- loadContextLayer(layer, signal): Promise<ModelLayerHandle>
+- pick(pointer): Promise<PickResult | undefined>
+- setVisibility(targets, visible): Promise<void>
+- setStyle(targets, style): Promise<void>
+- fitTo(targets): Promise<void>
+- setCamera(pose): Promise<void>
+- resetCamera(): Promise<void>
+- resize(): void
+- dispose(): Promise<void>
+
+Raw That Open, Fragments, or Three.js objects never leave its adapter package.
+
+BimInteractionService
+Responsibility: normalized pointer interaction and element selection.
+
+- handlePointerMove(event): void
+- handlePointerSelect(event): Promise<void>
+- selectElement(ref): Promise<void>
+- clearSelection(): Promise<void>
+
+BimPropertyService
+Responsibility: selected-element identity, properties, and relations.
+
+- getIdentity(ref, signal): Promise<ElementIdentity>
+- getProperties(ref, profile, signal): Promise<readonly PropertyGroup[]>
+- getRelations(ref, request, signal): Promise<ElementRelations>
+
+SpatialStructureService
+Responsibility: storey/class/type index and group visibility.
+
+- getTree(modelVersionId, signal): Promise<readonly SpatialNode[]>
+- setNodeVisibility(nodeId, visible): Promise<void>
+- isolateNode(nodeId): Promise<void>
+- restoreVisibility(): Promise<void>
+
+UnitOperationsService
+Responsibility: unit search and synchronized list/3D selection.
+
+- searchUnits(buildingId, query, signal): Promise<Page<UnitSummary>>
+- selectUnit(unitId, signal): Promise<void>
+- selectFromPick(pick, signal): Promise<void>
+- clearSelection(): Promise<void>
+
+OccupantService
+Responsibility: authorized occupancy information for a selected unit.
+
+- getCurrentOccupancies(buildingId, unitId, signal): Promise<readonly OccupancyView[]>
+
+NavigationService
+Responsibility: named views, reset, fit, and optional saved viewpoints.
+
+- reset(): Promise<void>
+- goToNamedView(viewId): Promise<void>
+- focusElement(ref): Promise<void>
+- focusUnit(unitId): Promise<void>
+
+TelemetryService
+Responsibility: privacy-safe metrics and errors.
+
+- track(event: TelemetryEvent): void
+- recordError(error: AppError, context: SafeContext): void
+- time<T>(operation, task): Promise<T>
+
+5.4 Infrastructure adapters
+---------------------------
+
+ThatOpenViewerAdapter:
+
+- Owns one Components registry, World, renderer, camera, FragmentsManager, and
+  Highlighter integration.
+- Initializes FragmentsManager once using a self-hosted worker.
+- Binds loaded fragment models to the current camera.
+- Updates Fragments visibility/LOD after camera-control changes.
+- Converts library item maps/IDs to ElementRef.
+- Disposes models, controls, canvas, listeners, worker-side state, and GPU data.
+
+ApiClient:
+
+- Adds authentication and correlation headers.
+- Validates every response against shared runtime schemas.
+- Supports AbortSignal, timeout, and stable error conversion.
+- Never caches private occupant responses.
+
+BuildingConfigAdapter:
+
+- Converts backend configuration into frontend domain values.
+- Rejects unsupported schema/runtime versions before large asset downloads.
+
+5.5 Feature module rule
+-----------------------
+
+Each module contains public index.ts, controller/use cases, ports/types, UI,
+selectors/effects, and tests. Modules communicate through the store or explicit
+interfaces, never DOM lookup, global singleton, or service locator.
+
+===============================================================================
+6. BACKEND ARCHITECTURE
+===============================================================================
+
+6.1 Responsibility
+------------------
+
+Use TypeScript with a small HTTP framework such as Fastify. The backend owns auth
+integration and authorization, building configuration, active model versions,
+operational data, model administration, asset references, audit, and observability.
+
+Controllers validate input, call one application service, and serialize a result.
+Controllers contain no SQL or business rules.
+
+6.2 Module structure
+--------------------
+
+backend/src/modules/<module>/
+  index.ts
+  domain/
+  application/
+    service.ts
+    commands.ts
+    queries.ts
+    ports.ts
+  http/
+    routes.ts
+    request-schema.ts
+    response-mapper.ts
+  infrastructure/
+    postgres-repository.ts
+  tests/
+
+6.3 Backend services and functions
+----------------------------------
+
+BuildingService
+
+- listAccessibleBuildings(actor, query): Promise<Page<BuildingSummary>>
+- getBuilding(actor, buildingId): Promise<BuildingDetail>
+- updateBuilding(actor, command): Promise<BuildingDetail>
+
+ModelService
+
+- getActiveManifest(actor, buildingId): Promise<ModelManifest>
+- listVersions(actor, buildingId): Promise<readonly ModelVersionSummary[]>
+- registerVersion(actor, command): Promise<ModelVersion>
+- activateVersion(actor, buildingId, versionId): Promise<void>
+- rollbackVersion(actor, buildingId, versionId): Promise<void>
+
+UnitService
+
+- searchUnits(actor, buildingId, query): Promise<Page<UnitSummary>>
+- getUnit(actor, buildingId, unitId): Promise<UnitDetail>
+- getBindings(actor, buildingId, modelVersionId): Promise<UnitBindingSet>
+- validateBindings(command): Promise<BindingValidationReport>
+
+OccupancyService
+
+- getCurrentByUnit(actor, buildingId, unitId): Promise<readonly OccupancyView[]>
+- createOccupancy(actor, command): Promise<Occupancy>
+- endOccupancy(actor, command): Promise<Occupancy>
+
+PersonService
+
+- getPermittedView(actor, personId, purpose): Promise<PersonView>
+- updatePerson(actor, command): Promise<PersonView>
+
+AuthorizationService
+
+- requireBuildingAccess(actor, buildingId, action): Promise<void>
+- permittedPersonFields(actor, buildingId, purpose): ReadonlySet<PersonField>
+- canManageModels(actor, buildingId): Promise<boolean>
+
+AuditService
+
+- record(event): Promise<void>
+- query(actor, filter): Promise<Page<AuditView>>
+
+ModelAssetService
+
+- createUpload(actor, buildingId, input): Promise<UploadTicket>
+- resolveDownload(actor, assetId): Promise<AssetLocation>
+- verifyPublishedAssets(manifest): Promise<AssetVerificationReport>
+
+6.4 Repositories
+----------------
+
+Application services depend on BuildingRepository, ModelRepository, UnitRepository,
+UnitBindingRepository, PersonRepository, OccupancyRepository, AccessRepository,
+AuditRepository, AssetRepository, and TransactionManager interfaces.
+
+Repository methods use domain values, not request DTOs. PostgreSQL adapters contain
+SQL/query-builder code and map rows explicitly. Related changes use one transaction.
+
+6.5 API routes and conventions
+------------------------------
+
+Base path: /api/v1
+
+- GET /buildings
+- GET /buildings/:buildingId
+- GET /buildings/:buildingId/models/active/manifest
+- GET /buildings/:buildingId/models/versions
+- GET /buildings/:buildingId/units
+- GET /buildings/:buildingId/units/:unitId
+- GET /buildings/:buildingId/units/:unitId/occupancies/current
+- POST /buildings/:buildingId/model-uploads
+- POST /buildings/:buildingId/model-versions
+- POST /buildings/:buildingId/model-versions/:versionId/activate
+- POST /buildings/:buildingId/model-versions/:versionId/rollback
+- POST /buildings/:buildingId/unit-bindings/validate
+
+Validate all input/output; use cursor pagination and stable error codes; include a
+correlation ID; use idempotency keys for retryable administration; authorize actor
+and building scope on every request; never put PII in URLs/logs/errors/analytics.
+
+===============================================================================
+7. DATABASE ARCHITECTURE
+===============================================================================
+
+7.1 Responsibility
+------------------
+
+Use PostgreSQL. The database folder owns schema, migrations, verification, and
+synthetic seeds independently of backend source code.
+
+7.2 Core tables
+---------------
+
+organizations
+- id, name, status, created_at, updated_at
+
+sites
+- id, organization_id, name, timezone, locale
+
+buildings
+- id, site_id, code, name, status, configuration_json, created_at, updated_at
+
+models
+- id, building_id, code, name, purpose
+
+model_versions
+- id, model_id, version_label, source_hash, fragment_asset_id, manifest_asset_id,
+  status, schema_version, converter_version, created_at, activated_at
+
+model_activation_history
+- id, building_id, model_version_id, activated_by, activated_at, ended_at
+
+units
+- id, building_id, code, display_name, unit_type, storey_code, status, attributes_json
+
+unit_model_bindings
+- id, unit_id, model_version_id, binding_type, ifc_global_id, model_local_id,
+  proxy_item_id, confidence, status
+
+people
+- id, organization_id, protected fields, status, created_at, updated_at
+
+occupancies
+- id, building_id, unit_id, person_id, relationship_type, starts_at, ends_at, status
+
+users, roles, permissions, user_roles
+
+user_building_access
+- user_id, building_id, role_id, starts_at, ends_at
+
+assets
+- id, content_hash, storage_key, media_type, byte_size, status, created_at
+
+audit_events
+- id, actor_user_id, building_id, action, resource_type, resource_id, outcome,
+  safe_metadata_json, created_at
+
+7.3 Relation rules
+------------------
+
+- Every unit belongs to one building.
+- A building may have multiple logical models and versions.
+- One approved active version per model/purpose is exposed by default.
+- Unit bindings are model-version-specific because local IDs can change.
+- A unit may bind to multiple model elements.
+- Occupancy is time-bounded; history is not overwritten.
+- People are separated from occupancy to avoid duplicated private details.
+- Access is building-scoped and may be time-bounded.
+- Model assets are immutable and content-addressed.
+
+7.4 Constraints and indexes
+---------------------------
+
+Constraints include unique building code per site, unique unit code per building,
+unique model version label per model, one active version rule, foreign keys, valid
+occupancy date ranges, unique active binding target/version, and status checks.
+
+Indexes include ownership foreign keys; searchable unit code/name by building;
+bindings by model version + local/GlobalId; occupancy by building/unit/date; access
+by user/building/date; and audit by building/time.
+
+7.5 Migration rules
+-------------------
+
+- Forward-only ordered migrations, immutable after release.
+- Expand/migrate/contract for destructive changes.
+- Automated verification for every migration.
+- Tested backup/restore instead of blind production down-migrations.
+- Synthetic seeds only.
+- Legacy imports are idempotent, transactional, dry-runnable, and reconciled.
+
+===============================================================================
+8. SHARED DOMAIN, MANIFEST, AND CONFIGURATION
+===============================================================================
+
+8.1 Shared values and schemas
+-----------------------------
+
+Shared contains branded IDs, BuildingSummary/Detail, ModelManifest, ElementRef,
+ElementIdentity, ordered PropertyEntry/Group, SpatialNode, UnitSummary/Detail,
+UnitBindingSet, OccupancyView, CameraPose, NamedView, FeatureFlags, PropertyProfile,
+Page<T>, Result<T,E>, and stable errors.
+
+BIM properties use ordered arrays, not object dictionaries, so duplicate keys and
+source order remain representable.
+
+Runtime validators and JSON Schema/OpenAPI cover API contracts, building config,
+model manifest, conversion report, property profile, unit bindings, and publication.
+Every versioned file has schemaVersion. Unsupported major versions fail before
+large model downloads.
+
+8.2 Model manifest
+------------------
+
+One immutable ModelManifest includes:
+
+- schemaVersion, buildingId, modelId, modelVersionId, label, and hashes.
+- coordinate system, units, origin transform, and georeference summary.
+- default camera and named views.
+- one or more fragment layers.
+- optional context GLB layers.
+- asset reference, hash, bytes, transform, purpose, and default visibility per layer.
+- available IFC classes, property profiles, relations, storeys, and capabilities.
+- unit-binding reference/version and coverage summary.
+- compatible Components/Fragments/web-ifc versions.
+- source fingerprint, conversion time, tools, and warnings.
+
+No feature assumes one fixed IFC filename or scene layout.
+
+8.3 Property profiles
+---------------------
+
+A PropertyProfile configures included IFC classes, required attributes/property
+sets/relations, presentation groups/labels, searchable fields, hidden fields, and
+fallback behavior. This supports different authoring conventions without branching
+the frontend for a building name.
+
+===============================================================================
+9. MODEL PIPELINE
+===============================================================================
+
+9.1 Principle
+-------------
+
+Normal viewers load optimized .frag files. IFC parsing/conversion occurs in a
+repeatable TypeScript pipeline using @thatopen/fragments and web-ifc. Browser IFC
+import may be an admin/offline tool, not the normal public path.
+
+9.2 Stages
+----------
+
+1. Intake: receive building/model identity, IFC, profile, context, binding rules,
+   publisher; hash and stage all inputs.
+2. Inspect: read schema, units, georeference, storeys, classes, GlobalIds, properties,
+   relations, and warnings; always close web-ifc resources.
+3. Validate: enforce support, limits, required content, coordinates, GlobalId quality,
+   and profile compatibility.
+4. Convert: use the pinned Fragments IfcImporter, selective content profile, and
+   documented origin policy; emit content-addressed fragments.
+5. Bind: match UnitId to spaces/zones/elements using declarative rules and explicit
+   versioned exceptions; report mapped/unmapped/ambiguous/unmanaged.
+6. Verify: load output in a verification viewer; test identity, properties, tree,
+   bounds, transforms, bindings, hashes, and runtime compatibility.
+7. Publish: upload immutable assets, verify remote hashes, publish manifest, register
+   through backend, then activate separately with authorization.
+
+9.3 Onboarding package
+----------------------
+
+Each building/model onboarding package contains:
+
+- building.yaml/json
+- model-source metadata
+- property-profile.yaml/json
+- unit-binding-rules.yaml/json
+- optional unit-binding-exceptions.csv
+- default/named views
+- optional context-layer manifest
+- validation thresholds
+
+These are validated data contracts, not executable custom scripts. A one-building
+code change requires architecture review and should become a generalized capability
+or separately deployed integration adapter.
+
+9.4 Version behavior
+--------------------
+
+Model versions/assets are immutable. New source/settings create a new version.
+Activation updates an active pointer transactionally and records history. Bindings
+belong to a model version. Rollback reactivates a previous verified version.
+
+===============================================================================
+10. RENDERING AND BIM ADAPTER
+===============================================================================
+
+10.1 Compatibility baseline
+---------------------------
+
+Initial tested version set:
+
+- @thatopen/components 3.4.8
+- @thatopen/components-front 3.4.4
+- @thatopen/fragments 3.4.7
+- three 0.184.0
+- web-ifc 0.0.77
+- Node at least 20.11, pinned exactly in repository and CI
+
+Upgrade these as one tested set. Browser worker, converter, and WASM versions never
+float independently.
+
+10.2 Adapter rules
+------------------
+
+- Use Components' FragmentsManager, not a second direct FragmentsModels instance.
+- Self-host matching worker/WASM files with correct MIME types.
+- Hide library item maps/types behind ElementRef and target collections.
+- Keep renderer/camera/model handles private.
+- Query selected properties lazily; do not copy all BIM metadata into app state.
+- Highlight without material cloning.
+- Load context through a separate adapter/lifecycle.
+- Make every model/layer handle disposable.
+- Update Fragments culling/LOD after camera changes only.
+
+The ViewerPort supports multiple/federated fragment layers, transforms, visibility,
+named views, normalized picking, style/isolate/fit operations, context layers,
+resize, context-loss recovery, and disposal. It contains no apartment-specific
+methods; UnitBindingService resolves UnitId into generic viewer targets.
+
+===============================================================================
+11. SECURITY AND PRIVACY
+===============================================================================
+
+- Authenticate every operational-data request.
+- Authorize actor + building + action on the backend.
+- Apply field policy before person data serialization.
+- Separate model assets from private operational data.
+- Set private, no-store caching for occupant responses.
+- Never put person data in static assets, URLs, logs, traces, analytics, errors,
+  browser persistence, or service-worker caches.
+- Audit sensitive access without response content.
+- Use parameterized queries and request/response validation.
+- Apply CSP, HSTS, nosniff, CORS allowlists, rate limits, and timeouts.
+- Use synthetic data in development, tests, screenshots, and demos.
+
+===============================================================================
+12. COMPLETE IMPLEMENTATION PLAN
+===============================================================================
+
+Every step has outputs and acceptance criteria. Project data becomes a fixture only
+after the generic capability exists.
+
+PHASE 0 - PLATFORM REQUIREMENTS
+-------------------------------
+
+Step 0.1 - Define platform capabilities
+Actions:
+1. Confirm core and optional features.
+2. Define browsers, devices, model-size classes, IFC schemas, and federation needs.
+3. Define startup, interaction, memory, and availability targets.
+4. Record non-goals and owners.
+Outputs: platform scope and performance budget.
+Acceptance: requirements contain no fixed model name, floor/unit count, or building-
+specific camera/property assumption.
+
+Step 0.2 - Define tenancy and privacy
+Actions:
+1. Define organization/site/building ownership.
+2. Define roles, actions, building scope, and permitted person fields.
+3. Define retention, audit, cache, backup, and incident policy.
+4. Threat-model frontend, API, DB, pipeline, and storage.
+Outputs: authorization matrix, data classification, threat model.
+Acceptance: every private endpoint/field has a named policy and owner.
+
+Step 0.3 - Approve architecture decisions
+Actions:
+1. Record ADRs for folder layout, frontend state, ports/adapters, PostgreSQL,
+   preconverted Fragments, immutable versions, and deployment.
+2. Define optional-module registration.
+3. Define configuration-versus-custom-code rules.
+Outputs: ADR set.
+Acceptance: no open decision can change top-level boundaries or core identities.
+
+PHASE 1 - REPOSITORY AND QUALITY
+--------------------------------
+
+Step 1.1 - Scaffold separated workspaces
+Actions:
+1. Create frontend, backend, database, model-pipeline, shared, infrastructure, docs.
+2. Give each workspace a README, commands, config schema, tests, and CI ownership.
+3. Configure pnpm and strict TypeScript project references.
+4. Enforce cross-boundary import rules.
+Outputs: compilable empty monorepo.
+Acceptance: workspaces build/test independently and invalid internal imports fail.
+
+Step 1.2 - Add quality tooling
+Actions:
+1. Configure strict TypeScript, ESLint, formatting, Vitest, and Playwright.
+2. Pin Node/dependencies and commit lockfile.
+3. Add root install/typecheck/lint/test/build/verify commands.
+4. Add license/vulnerability and controlled-upgrade checks.
+Outputs: repeatable toolchain.
+Acceptance: fresh Windows and CI Linux checkouts pass all root commands.
+
+Step 1.3 - Add CI by boundary
+Actions:
+1. Add shared, frontend, backend, database, pipeline, E2E, and artifact jobs.
+2. Upload privacy-safe diagnostics.
+3. Fail worker/WASM/library version mismatch.
+Outputs: CI workflows.
+Acceptance: a failure in each boundary fails the correct job/dependents.
+
+PHASE 2 - SHARED DOMAIN AND CONTRACTS
+-------------------------------------
+
+Step 2.1 - Implement identities and values
+Actions:
+1. Implement branded IDs, ElementRef, UnitBinding, CameraPose, and typed errors.
+2. Preserve BIM properties as ordered entries.
+3. Reject malformed and cross-building/version combinations.
+4. Add round-trip tests.
+Outputs: shared/domain.
+Acceptance: invalid identities cannot use public constructors and duplicate ordered
+properties round-trip unchanged.
+
+Step 2.2 - Implement runtime schemas
+Actions:
+1. Define configuration, manifest, profile, binding, API, report, and error schemas.
+2. Generate JSON Schema/OpenAPI where useful.
+3. Test supported-old/current/invalid/future versions.
+Outputs: shared/schemas and fixtures.
+Acceptance: frontend, backend, and pipeline validate the same fixtures identically.
+
+Step 2.3 - Define ports
+Actions:
+1. Define viewer/query, repository, asset, and publication ports.
+2. Document handle lifecycle and cancellation.
+3. Create reusable adapter contract tests.
+Outputs: shared interfaces and contract suites.
+Acceptance: ports import no Three.js, That Open, HTTP, auth-provider, or SQL types.
+
+PHASE 3 - DATABASE
+------------------
+
+Step 3.1 - Create schema and migrations
+Actions:
+1. Implement Section 7 tables, relationships, constraints, and indexes.
+2. Add migration metadata and verification queries.
+3. Add synthetic seeds for two structurally different buildings.
+Outputs: database schema/migrations/seeds.
+Acceptance: clean migration succeeds, invalid cross-building data fails, and the two
+fixtures differ in floor/unit/model shape.
+
+Step 3.2 - Add operational scripts
+Actions:
+1. Implement migrate, verify, backup-check, and safe development reset.
+2. Implement idempotent legacy import with dry-run and reconciliation.
+3. Prohibit real private seed data.
+Outputs: database scripts/runbook.
+Acceptance: repeated import does not duplicate; invalid data rolls back transaction.
+
+Step 3.3 - Add database tests
+Actions:
+1. Test supported migration paths, constraints, query plans, and transactions.
+2. Test occupancy history, active model, and isolation invariants.
+Outputs: database integration tests.
+Acceptance: CI provisions, migrates, verifies, and destroys an isolated database.
+
+PHASE 4 - BACKEND
+-----------------
+
+Step 4.1 - Build composition root
+Actions:
+1. Validate config and construct adapters/repositories/services/routes explicitly.
+2. Add health/readiness and graceful shutdown.
+3. Make server construction testable without opening a port.
+Outputs: backend bootstrap.
+Acceptance: start/stop closes resources and tests replace all infrastructure ports.
+
+Step 4.2 - Implement auth and authorization
+Actions:
+1. Integrate identity provider behind a port.
+2. Implement centralized building/action and field-level policy.
+3. Add role/building matrix tests.
+Outputs: auth/authorization modules.
+Acceptance: guessed valid IDs cannot bypass building or private-field authorization.
+
+Step 4.3 - Implement building/model services
+Actions:
+1. Implement catalog, detail, active manifest, versions, register, activate, rollback.
+2. Verify assets/bindings before activation.
+3. Record activation history and audit transactionally.
+Outputs: building/model modules/routes.
+Acceptance: different buildings use different active versions/configuration without
+conditional source code, and partial activation is impossible.
+
+Step 4.4 - Implement unit/occupancy services
+Actions:
+1. Implement paginated unit search/detail and binding retrieval.
+2. Implement current/historical occupancy with field policy.
+3. Add cancellation, timeout, stable errors, and safe logging.
+Outputs: units/occupants modules/routes.
+Acceptance: the same endpoints serve both fixtures with correct isolation.
+
+Step 4.5 - Implement audit/assets
+Actions:
+1. Audit sensitive reads/model administration safely.
+2. Implement asset tickets and verification.
+3. Add redaction, rate limiting, and command idempotency.
+Outputs: audit/assets modules.
+Acceptance: audits are useful without PII and asset references respect scope.
+
+PHASE 5 - MODEL PIPELINE
+------------------------
+
+Step 5.1 - Implement IFC inspection
+Actions:
+1. Inspect schema, units, coordinates, storeys, classes, properties, relations,
+   GlobalIds, and limits using pinned web-ifc.
+2. Emit stable reports and always close resources.
+3. Test different IFC conventions.
+Outputs: inspection service/command.
+Acceptance: reports have one schema across buildings and cleanup works on failure.
+
+Step 5.2 - Implement profile-driven conversion
+Actions:
+1. Initialize pinned Fragments/web-ifc set.
+2. Read content and coordinate policy from PropertyProfile.
+3. Emit content-addressed fragments and tool/input/config metrics.
+Outputs: conversion service.
+Acceptance: two different model/profile fixtures convert without source changes.
+
+Step 5.3 - Implement generic unit binding
+Actions:
+1. Match UnitId to IFC targets with declarative prioritized rules.
+2. Support versioned exceptions.
+3. Report mapped/unmapped/ambiguous/unmanaged and enforce thresholds.
+Outputs: binding service/report.
+Acceptance: different counts/codes work and ambiguity fails instead of selecting by
+hierarchy position.
+
+Step 5.4 - Implement manifest and verification
+Actions:
+1. Generate manifest from layers, profiles, bindings, views, context, compatibility.
+2. Validate hashes/transforms/schemas/references.
+3. Load output in verification viewer and run required queries.
+Outputs: manifest/verification services.
+Acceptance: missing assets/properties, invalid transforms, or incompatibility block
+publication with clear errors.
+
+Step 5.5 - Implement publication/rollback
+Actions:
+1. Upload/verify immutable assets before manifest registration.
+2. Separate publication from activation.
+3. Add dry-run, retry, cleanup, and rollback.
+Outputs: publication service/runbook.
+Acceptance: interruption never exposes incomplete version; old verified version can
+be reactivated without conversion.
+
+PHASE 6 - FRONTEND SHELL
+------------------------
+
+Step 6.1 - Build frontend composition root
+Actions:
+1. Validate config and construct store, clients, adapters, services, controllers/UI.
+2. Own global listeners/teardown centrally.
+3. Add startup/retry/session-expiry states.
+Outputs: runnable shell.
+Acceptance: repeated mount/dispose leaves no canvas, worker, observer, listener, or
+animation frame.
+
+Step 6.2 - Implement state and transitions
+Actions:
+1. Implement reducer, commands, selectors, effects.
+2. Define building switch, model load, mode, visibility, and selection rules.
+3. Test stale async results and invariants.
+Outputs: application store.
+Acceptance: old selections/work never leak across building/model versions.
+
+Step 6.3 - Implement auth/building catalog
+Actions:
+1. Initialize auth and API client.
+2. Display accessible buildings with complete states.
+3. Open building using coordinator/validated manifest.
+4. Authorize direct routes.
+Outputs: auth/catalog modules.
+Acceptance: unchanged frontend opens both fixtures and rejects inaccessible routes.
+
+PHASE 7 - VIEWER AND MODEL SESSION
+----------------------------------
+
+Step 7.1 - Implement That Open adapter
+Actions:
+1. Create one Components/World/renderer/camera/FragmentsManager/Highlighter set.
+2. Use self-hosted matching worker/WASM.
+3. Implement resize, pixel ratio, updates, context loss, and disposal.
+4. Expose ViewerPort only.
+Outputs: frontend That Open infrastructure.
+Acceptance: fixture loads/navigates/picks/resizes/disposes without leaking library
+types or resources.
+
+Step 7.2 - Implement ModelSessionService
+Actions:
+1. Validate compatibility before large downloads.
+2. Load multiple fragment layers with progress/cancel.
+3. Apply transforms/visibility and initial update.
+4. Load optional context independently.
+5. Ignore stale completions.
+Outputs: model-session module.
+Acceptance: manifests with different layer counts/transforms/context work without
+source changes; cancel/retry/switch/dispose are deterministic.
+
+Step 7.3 - Implement generic navigation
+Actions:
+1. Add orbit, pan, zoom, fit, reset, touch.
+2. Read default/named views from manifest.
+3. Use CSS layout/ResizeObserver.
+4. Add keyboard/accessibility.
+Outputs: navigation module.
+Acceptance: each building resets to its own view on desktop and touch.
+
+Step 7.4 - Test lifecycle
+Actions:
+1. Repeat building/model load/unload cycles.
+2. Track renderer resources, handles, listeners, workers, and memory proxies.
+3. Test failures/context loss.
+Outputs: lifecycle suite.
+Acceptance: resources settle after switches between different buildings.
+
+PHASE 8 - BIM FEATURES
+----------------------
+
+Step 8.1 - Implement picking/highlighting
+Actions:
+1. Convert library picks to ElementRef inside adapter.
+2. Add hover/select/clear with accessible styles and throttling.
+3. Clear scoped selection on switch.
+Outputs: interaction/selection services.
+Acceptance: identity is correct for single/federated fixtures without material clones.
+
+Step 8.2 - Implement property queries
+Actions:
+1. Query identity/properties/relations lazily through BimQueryPort/profile.
+2. Preserve order/duplicates and bound cache by version.
+3. Cancel/ignore stale requests.
+Outputs: property service/tests.
+Acceptance: different profiles work without building-name conditionals.
+
+Step 8.3 - Implement property panel
+Actions:
+1. Render configured groups safely with virtualized/filter/copy states.
+2. Add fit/hide/isolate/clear/restore commands.
+3. Add loading/empty/error/accessibility behavior.
+Outputs: BIM UI.
+Acceptance: large/missing property sets are responsive and safe.
+
+Step 8.4 - Implement spatial tree
+Actions:
+1. Query storey/class/type nodes.
+2. Apply visibility by item collections, not scene names.
+3. Add fallback when relations are unavailable.
+Outputs: spatial tree module.
+Acceptance: different hierarchies/storey counts use the same UI.
+
+PHASE 9 - UNITS AND OCCUPANCY
+-----------------------------
+
+Step 9.1 - Implement UnitBindingIndex
+Actions:
+1. Load current version bindings.
+2. Resolve UnitId to targets and picks to UnitId.
+3. Report coverage and reject ambiguous/cross-version references.
+Outputs: binding index.
+Acceptance: different counts and binding strategies resolve via the same service.
+
+Step 9.2 - Implement unit search/selection
+Actions:
+1. Add debounced paginated cancelable search.
+2. Add virtual list and all states.
+3. Synchronize list/3D through store/service.
+4. Highlight/focus resolved targets.
+Outputs: units module.
+Acceptance: list/3D converge on one UnitId and stale work cannot cross buildings.
+
+Step 9.3 - Implement occupant display
+Actions:
+1. Fetch only for authorized selected unit; cancel on scope/session change.
+2. Render only returned permitted fields.
+3. Prevent cache/URL/log/telemetry persistence.
+4. Add empty/unauthorized/expired/error states.
+Outputs: occupants module/privacy tests.
+Acceptance: role tests show exact fields and no PII appears in client artifacts.
+
+Step 9.4 - Complete mode shell
+Actions:
+1. Derive panels/interactions/visibility from store.
+2. Add overview/BIM/units modes.
+3. Localize and support configuration/branding without forks.
+Outputs: integrated UI.
+Acceptance: all modes work for all fixtures with one owner of state.
+
+PHASE 10 - ZERO-CODE BUILDING ONBOARDING
+----------------------------------------
+
+Step 10.1 - Build onboarding validator
+Actions:
+1. Validate config/source/profile/context/views/bindings/thresholds.
+2. Emit human/machine readiness report with errors/warnings.
+Outputs: validate-onboarding command.
+Acceptance: complete package passes without code; errors identify file/path.
+
+Step 10.2 - Onboard two different buildings
+Actions:
+1. Use different IFC conventions, structures, counts, properties, context, views,
+   and bindings.
+2. Publish/activate through real pipeline/API.
+3. Run the same frontend E2E suite against both.
+Outputs: synthetic/reference onboarding packages.
+Acceptance: no code checks building ID/name and both pass all core capabilities.
+
+Step 10.3 - Prove third-building onboarding
+Actions:
+1. Give templates/runbook to a developer unfamiliar with the first fixture.
+2. Onboard, validate, convert, publish, activate, verify, rollback.
+3. Record gaps and generalize only true platform needs.
+Outputs: onboarding trial report and refined documentation.
+Acceptance: third fixture is added without editing platform source.
+
+PHASE 11 - PERFORMANCE AND RELIABILITY
+--------------------------------------
+
+Step 11.1 - Add model-independent performance scenarios
+Actions:
+1. Test cold load, first useful model, orbit, dense view, BIM select, unit select,
+   building switch, context toggle, repeated reload.
+2. Record bytes, timing, long tasks, frame p50/p95, renderer.info, memory proxies,
+   API/interaction latency by build/model hash.
+3. Cover small/medium/large reference models/devices.
+Outputs: performance harness/budgets.
+Acceptance: comparisons do not depend on one building's geometry.
+
+Step 11.2 - Optimize measured bottlenecks
+Actions:
+1. Verify Fragments culling/LOD and avoid redundant work.
+2. Reduce imported content by profile before custom geometry work.
+3. Lazy-load context/data, cap pixel ratio, optimize GLBs/textures/hot allocations.
+4. Retain only measured improvements without correctness regression.
+Outputs: before/after reports.
+Acceptance: improvements meet budgets for representative model classes.
+
+Step 11.3 - Add recovery/telemetry
+Actions:
+1. Handle network, manifest, worker/WASM, model, context, API, auth, and WebGL errors.
+2. Retry safe operations only; provide recovery UI/correlation IDs.
+3. Add privacy-safe telemetry and alerts.
+Outputs: recovery behavior, telemetry, runbooks.
+Acceptance: fault injection causes no stale state, leak, or private telemetry.
+
+PHASE 12 - DELIVERY AND HARDENING
+---------------------------------
+
+Step 12.1 - Configure production delivery
+Actions:
+1. Set correct MIME/CORS for JS/CSS/worker/WASM/frag/GLB/manifest.
+2. Compress and immutably cache hashed assets; revalidate pointers/manifests.
+3. Configure CSP/HSTS/nosniff/frame/referrer/connect/worker policies.
+4. Prevent service-worker private-response caching.
+Outputs: deployment/CDN config and header tests.
+Acceptance: production-like load uses matching self-hosted assets, no version mix,
+and no private caching.
+
+Step 12.2 - Complete testing
+Actions:
+1. Unit-test domain/reducer/services/mappings/auth/pure functions.
+2. Contract-test schemas/adapters.
+3. Integrate-test DB/API/worker/WASM/fragments/lifecycle.
+4. E2E-test all core flows against two buildings.
+5. Add accessibility, touch, visual, security, and performance checks.
+Outputs: CI test pyramid.
+Acceptance: every core capability is automated with privacy-safe diagnostics.
+
+Step 12.3 - Complete security review
+Actions:
+1. Test auth/session/policy/isolation/filtering/injection/XSS/CSP/CORS/rate/audit.
+2. Search artifacts/maps/caches/logs/traces/analytics for PII.
+3. Test backup/restore and incidents.
+Outputs: security sign-off.
+Acceptance: no critical/high issue, cross-building access, or public PII.
+
+Step 12.4 - Release and rollback
+Actions:
+1. Stage behind limited access.
+2. Monitor load/API/frame/interaction/context-loss metrics by model version.
+3. Keep prior app and model versions rollbackable.
+Outputs: release report.
+Acceptance: application and per-building model rollback are tested; thresholds hold.
+
+PHASE 13 - DOCUMENTATION AND EXTENSION
+--------------------------------------
+
+Step 13.1 - Complete documentation
+Actions:
+1. Document setup, boundaries, services, contracts, DB, pipeline, tests, deployment,
+   monitoring, backup, rollback, security, and troubleshooting.
+2. Document public service lifecycle/ownership.
+Outputs: READMEs, ADRs, data/API docs, runbooks.
+Acceptance: a new developer runs the platform and traces a request FE->BE->DB.
+
+Step 13.2 - Create extension templates
+Actions:
+1. Template frontend module: facade/controller/port/adapter/UI/state/tests/disposal.
+2. Template backend module: domain/service/controller/repository/migration/tests.
+3. Document adding profiles, layers, operational entities, toolbar capabilities,
+   integrations, and localization.
+4. Enforce architecture boundaries.
+Outputs: templates/extension guide.
+Acceptance: sample optional module adds/removes without unrelated changes.
+
+===============================================================================
+13. FUNCTION AND CODE CLARITY STANDARD
+===============================================================================
+
+- One function has one reason to change.
+- Name by intent: activateModelVersion, not processModel.
+- Controllers parse/validate/authorize/dispatch; no business logic.
+- Services coordinate use cases and transaction boundaries.
+- Repositories persist/map; they do not decide authorization.
+- Adapters translate libraries/protocols to ports.
+- Pure mapping/validation functions have no I/O and use table-driven tests.
+- Async functions accept AbortSignal where cancellation matters.
+- Resource-producing functions return explicit disposable handles.
+- Avoid unclear boolean parameters; use option/value objects.
+- Use Result/optional/typed errors instead of ambiguous null.
+- Convert errors once at boundaries with safe context; do not log/rethrow everywhere.
+- No circular feature imports or global mutable state.
+- Prefer composition and small interfaces over inheritance.
+- Every public function documents input, output, errors, auth, side effects,
+  cancellation, and resource ownership.
+
+Example backend flow:
+
+GET unit occupancies
+  -> route validates buildingId/unitId
+  -> auth middleware resolves Actor
+  -> OccupancyService requires building permission
+  -> repository queries current relationships
+  -> person policy filters fields
+  -> response mapper validates shared schema
+  -> audit records safe access metadata
+
+Example viewer flow:
+
+pointer select
+  -> BimInteractionService asks ViewerPort to pick
+  -> adapter converts library result to ElementRef
+  -> service dispatches SELECT_ELEMENT
+  -> BimPropertyService queries through BimQueryPort
+  -> UI renders validated ordered groups
+
+===============================================================================
+14. DEFINITION OF DONE
+===============================================================================
+
+- frontend, backend, database, model-pipeline, and shared are separate, documented,
+  independently tested boundaries.
+- No feature code contains a building ID, model filename, floor/unit count,
+  model-specific camera coordinate, or IFC hierarchy assumption.
+- Two materially different buildings pass the same E2E suite.
+- A third fixture building is onboarded using only data/configuration.
+- Model versions are immutable, validated, activatable, and rollbackable.
+- Different profiles and unit binding strategies work through contracts.
+- Browser normally loads preconverted Fragments.
+- Raw Three.js/That Open/Fragments types stay in frontend adapter.
+- HTTP/SQL/auth/storage types stay outside domain/application logic.
+- Building switch cancels stale work, clears scoped state, and disposes resources.
+- BIM, spatial tree, unit search/selection, and authorized occupancy work without
+  building-specific branches.
+- Private data is absent from assets, caches, URLs, logs, and telemetry.
+- Security, accessibility, performance, browser, DB, and lifecycle gates pass.
+- New services/functions meet Section 13 clarity standard.
+- Onboarding, operation, deployment, rollback, and extension are documented.
+
+===============================================================================
+15. CURRENT PROJECT AS A REFERENCE FIXTURE, NOT THE ARCHITECTURE
+===============================================================================
+
+The Unity project demonstrated useful features: 3D navigation, BIM selection and
+metadata, apartment search/selection and resident relations, compact metadata,
+pooled lists, and non-destructive highlighting.
+
+It also demonstrated patterns not to copy: split mode/UI state, names/tags/hierarchy
+as identity, per-element scene objects/colliders, fixed data coverage assumptions,
+and private operational data in a client-readable snapshot.
+
+Its scene and sample data are one migration/parity fixture. They do not define the
+database schema, service interfaces, module names, or platform acceptance criteria.
+
+===============================================================================
+16. PRIMARY TECHNICAL REFERENCES
+===============================================================================
+
+That Open Components:
+https://github.com/ThatOpen/engine_components
+
+Components-managed FragmentsManager example:
+https://github.com/ThatOpen/engine_components/blob/main/packages/core/src/fragments/FragmentsManager/example.ts
+
+That Open Fragments and IfcImporter:
+https://github.com/ThatOpen/engine_fragment
+https://github.com/ThatOpen/engine_fragment/blob/main/packages/fragments/src/Importers/IfcImporter/index.ts
+
+web-ifc:
+https://github.com/ThatOpen/engine_web-ifc
+
+Three.js WebGLRenderer:
+https://threejs.org/docs/pages/WebGLRenderer.html
+
+END OF DOCUMENT
